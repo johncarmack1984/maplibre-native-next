@@ -54,10 +54,12 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
+          # libgl-dev, libgles-dev and libx11-dev: the difftest oracles that
+          # link @maplibre//platform/linux:impl.
           sudo apt-get install -y --no-install-recommends \
-            clang libcurl4-openssl-dev libglfw3-dev libicu-dev libjpeg-dev \
-            libpng-dev libuv1-dev libvulkan1 libwebp-dev mesa-vulkan-drivers \
-            pkg-config zlib1g-dev
+            clang libcurl4-openssl-dev libgl-dev libgles-dev libglfw3-dev \
+            libicu-dev libjpeg-dev libpng-dev libuv1-dev libvulkan1 \
+            libwebp-dev libx11-dev mesa-vulkan-drivers pkg-config zlib1g-dev
 
       - name: Install system packages
         if: runner.os == 'macOS'

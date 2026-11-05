@@ -197,3 +197,6 @@ crate.spec(
 )
 crate.from_specs(name = "next_crates")
 use_repo(crate, "next_crates")
+
+# The difftests' SQLite (difftest/sqlite).
+include("//difftest/sqlite:sqlite.MODULE.bazel")
