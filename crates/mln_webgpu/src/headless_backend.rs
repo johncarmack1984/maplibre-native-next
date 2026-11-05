@@ -263,7 +263,7 @@ impl Drop for HeadlessBackend {
     fn drop(&mut self) {
         // Explicitly reset the renderable resource before the context
         self.set_resource(None);
-        self.renderer_backend.base.reset_context();
+        self.renderer_backend.reset_context();
     }
 }
 
