@@ -17,11 +17,15 @@ pub use camera::{AnimationOptions, CameraOptions};
 pub use mode::{ConstrainMode, MapDebugOptions, MapMode, TileLodMode, ViewportMode};
 pub use projection_mode::ProjectionMode;
 pub mod tile_coordinate;
+pub mod tile_projector;
 pub mod transform_state;
 pub mod util_camera;
+pub mod vertical_perspective_projection;
 
 pub use camera::FreeCameraOptions;
 pub use mercator_projection::MercatorProjection;
 pub use projection_base::{ProjectedTilePoint, ProjectionBase, ProjectionData};
 pub use tile_coordinate::TileCoordinate;
+pub use tile_projector::TileProjector;
 pub use transform_state::{NorthOrientation, TransformState, TransformStateProperties};
+pub use vertical_perspective_projection::{CenterAndBearing, VerticalPerspectiveProjection};

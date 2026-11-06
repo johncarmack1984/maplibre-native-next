@@ -232,9 +232,11 @@ impl RenderTile {
         // depth buffer precision
         let transform = parameters.transform;
         self.matrix = transform.state.get_projection_data_with(&self.id, &transform.proj_matrix).main_matrix;
-        // TODO(port): the globe keeps the standard matrix here (globe phase 6).
-        self.near_clipped_matrix =
-            transform.state.get_projection_data_with(&self.id, &transform.near_clipped_proj_matrix).main_matrix;
+        self.near_clipped_matrix = if transform.state.is_globe_rendering() {
+            self.matrix
+        } else {
+            transform.state.get_projection_data_with(&self.id, &transform.near_clipped_proj_matrix).main_matrix
+        };
     }
 
     // TODO(port): setFeatureState (feature state, M6).

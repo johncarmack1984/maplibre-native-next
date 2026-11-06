@@ -15,8 +15,8 @@ use maplibre_native_base::Value;
 use mln_actor::{RunLoop, Timer};
 use mln_gfx::{BackendScope, ScopeType};
 use mln_map::{
-    BoundOptions, CameraOptions, ConstrainMode, Map, MapMode, MapOptions, MapProjection, NorthOrientation,
-    ProjectionMode, RenderMode, TileLodMode, ViewportMode,
+    AnimationOptions, BoundOptions, CameraOptions, ConstrainMode, Map, MapMode, MapOptions, MapProjection,
+    NorthOrientation, ProjectionMode, RenderMode, TileLodMode, ViewportMode,
 };
 use mln_renderer::{RendererFrontend, RendererObserver, UpdateParameters};
 use mln_storage::response::{Error as ResponseError, Reason};
@@ -450,6 +450,47 @@ fn camera_to_lat_lng_bounds_unwrapped_cross_date_line() {
     );
 
     assert!(map.lat_lng_bounds_for_camera_unwrapped(&camera).crosses_antimeridian());
+}
+
+// gtest: Map.PixelForLatLngWithTheCenterPastTheAntimeridian
+#[test]
+fn pixel_for_lat_lng_with_the_center_past_the_antimeridian() {
+    let test = MapTest::new();
+    test.map().set_size(Size::new(512, 512)).unwrap();
+    test.map()
+        .set_bounds(&BoundOptions::default().with_lat_lng_bounds(LatLngBounds::hull(ll(-10.0, 170.0), ll(10.0, 190.0))))
+        .unwrap();
+    test.map().jump_to(&cam().with_center(Some(ll(0.0, 181.0))).with_zoom(Some(4.0)));
+    assert_near(181.0, test.map().get_camera_options(None).center.unwrap().longitude(), 1e-9);
+
+    // A degree is 512 * 2^4 / 360 pixels at zoom 4.
+    let degree = 512.0 * 16.0 / 360.0;
+    let projection = MapProjection::new(&test.map());
+    for (longitude, x) in [(179.0, 256.0 - 2.0 * degree), (-179.5, 256.0 - 0.5 * degree)] {
+        assert_near(x, test.map().pixel_for_lat_lng(&ll(0.0, longitude)).x, 1e-6);
+        assert_near(x, projection.pixel_for_lat_lng(&ll(0.0, longitude)).x, 1e-6);
+    }
+}
+
+// gtest: Map.PixelForLatLngDuringAFlingAcrossTheAntimeridian
+#[test]
+fn pixel_for_lat_lng_during_a_fling_across_the_antimeridian() {
+    let test = MapTest::with_mode(1.0, MapMode::Continuous);
+    test.map().set_size(Size::new(512, 512)).unwrap();
+    test.map().jump_to(&cam().with_center(Some(ll(0.0, 179.0))).with_zoom(Some(4.0)));
+
+    let degree = 512.0 * 16.0 / 360.0;
+    test.map().set_gesture_in_progress(true);
+    test.map().move_by(&ScreenCoordinate::new(-2.0 * degree, 0.0), &AnimationOptions::new(Duration::from_secs(10)));
+    let center = test.map().get_camera_options(None).center.unwrap().longitude();
+    assert!(center < -180.0, "{center}");
+
+    let projection = MapProjection::new(&test.map());
+    for (longitude, nearest) in [(179.5, -180.5), (-179.5, -179.5)] {
+        let x = 256.0 + (nearest - center) * degree;
+        assert_near(x, test.map().pixel_for_lat_lng(&ll(0.0, longitude)).x, 1e-6);
+        assert_near(x, projection.pixel_for_lat_lng(&ll(0.0, longitude)).x, 1e-6);
+    }
 }
 
 // gtest: Map.LatLngForPixelUnwrapped
@@ -2049,6 +2090,104 @@ fn style_update_zoom_dependency() {
         0.0006,
         0.1,
     );
+}
+
+// gtest: Map.GlobeSetBoundsKeepsAZoomTheGlobeAllows
+#[test]
+fn globe_set_bounds_keeps_a_zoom_the_globe_allows() {
+    let test = MapTest::new();
+    test.load_json(r#"{"version":8,"projection":{"type":"vertical-perspective"},"sources":{},"layers":[]}"#);
+    test.map().jump_to(&cam().with_center(Some(ll(70.0, 0.0))).with_zoom(Some(-1.5)));
+    assert_near(-1.5, test.map().get_camera_options(None).zoom.unwrap(), 1e-9);
+    test.map().set_bounds(&BoundOptions::default().with_min_zoom(0.0)).unwrap();
+    assert_near(-1.5, test.map().get_camera_options(None).zoom.unwrap(), 1e-9);
+}
+
+// gtest: Map.GlobeBoundsForCamera
+#[test]
+fn globe_bounds_for_camera() {
+    let test = MapTest::new();
+    test.map().set_size(Size::new(512, 512)).unwrap();
+    test.map().set_bounds(&BoundOptions::default().with_max_pitch(85.0)).unwrap();
+    test.load_json(r#"{"version":8,"projection":{"type":"vertical-perspective"},"sources":{},"layers":[]}"#);
+    struct Case {
+        lng: f64,
+        lat: f64,
+        zoom: f64,
+        bearing: f64,
+        pitch: f64,
+        west: f64,
+        south: f64,
+        east: f64,
+        north: f64,
+    }
+    let case = |lng, lat, zoom, bearing, pitch, west, south, east, north| Case {
+        lng,
+        lat,
+        zoom,
+        bearing,
+        pitch,
+        west,
+        south,
+        east,
+        north,
+    };
+    let cases = [
+        case(0.0, 0.0, 1.0, 0.0, 0.0, -79.91796042106967, -79.91796042106967, 79.91796042106967, 79.91796042106967),
+        case(30.0, 20.0, 1.5, 30.0, 30.0, -56.805975633856576, -56.895025199618885, 94.30772744796946, 73.43306521431964),
+        case(0.0, 75.0, 1.0, 0.0, 0.0, -180.0, 32.70922481421371, 180.0, 90.0),
+        case(0.0, 75.0, 2.5, 0.0, 0.0, -54.89062256787065, 64.72883925258952, 54.89062256787065, 83.47499358170649),
+        case(10.0, 10.0, 3.0, 0.0, 0.0, -25.90264541368299, -19.587774363137328, 45.90264541369834, 36.43783991311318),
+        case(170.0, -10.0, 2.0, 45.0, 40.0, 90.75153870575207, -71.2057256347772, 267.1780088196146, 42.32122600031687),
+        // Looking away from the north pole, which is behind the camera, with
+        // the top of the view in the sky.
+        case(0.0, 80.0, 3.0, 180.0, 75.0, -27.136824618012838, 69.5727070878645, 27.136824618012724, 86.22734028617919),
+        case(0.0, 84.5, 5.0, 180.0, 84.0, -9.769090999914397, 81.42454063588696, 9.769090999914397, 85.70848143480487),
+        case(0.0, 85.0, 6.0, 180.0, 85.0, -7.12413211181115, 82.92590257945324, 7.12413211181115, 85.57800114051855),
+    ];
+    for c in &cases {
+        let camera = cam()
+            .with_center(Some(ll(c.lat, c.lng)))
+            .with_zoom(Some(c.zoom))
+            .with_bearing(Some(c.bearing))
+            .with_pitch(Some(c.pitch));
+        let map = test.map();
+        for bounds in [map.lat_lng_bounds_for_camera(&camera), map.lat_lng_bounds_for_camera_unwrapped(&camera)] {
+            assert_near(c.west, bounds.west(), 1e-5);
+            assert_near(c.south, bounds.south(), 1e-5);
+            assert_near(c.east, bounds.east(), 1e-5);
+            assert_near(c.north, bounds.north(), 1e-5);
+        }
+    }
+}
+
+// gtest: Map.GlobeSkyPixelSnapsToTheHorizonAhead
+#[test]
+fn globe_sky_pixel_snaps_to_the_horizon_ahead() {
+    let test = MapTest::new();
+    test.map().set_size(Size::new(512, 512)).unwrap();
+    test.map().set_bounds(&BoundOptions::default().with_max_pitch(85.0)).unwrap();
+    test.load_json(r#"{"version":8,"projection":{"type":"vertical-perspective"},"sources":{},"layers":[]}"#);
+    test.map().jump_to(
+        &cam()
+            .with_center(Some(ll(84.5, 0.0)))
+            .with_zoom(Some(5.0))
+            .with_bearing(Some(180.0))
+            .with_pitch(Some(84.0)),
+    );
+    let top = test.map().lat_lng_for_pixel(&ScreenCoordinate::new(256.0, 0.0), WrapMode::Wrapped);
+    assert_near(81.42454063588696, top.latitude(), 1e-6);
+    assert_near(0.0, top.longitude(), 1e-6);
+}
+
+// gtest: Map.SetBoundsLiftsTheZoomToAMinimumAboveTheMaximum
+#[test]
+fn set_bounds_lifts_the_zoom_to_a_minimum_above_the_maximum() {
+    let test = MapTest::new();
+    test.map().set_bounds(&BoundOptions::default().with_max_zoom(8.0)).unwrap();
+    test.map().jump_to(&cam().with_zoom(Some(6.0)));
+    test.map().set_bounds(&BoundOptions::default().with_min_zoom(10.0).with_max_zoom(16.0)).unwrap();
+    assert_near(10.0, test.map().get_camera_options(None).zoom.unwrap(), 1e-9);
 }
 
 // gtest: Map.LineLayerDepthDistribution

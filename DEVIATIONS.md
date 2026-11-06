@@ -129,6 +129,7 @@ account for it.
   observer cannot read the style back from inside `on_update` (the C++
   TransitionOptionsPublishUpdates test does; the port reads it afterwards).
 - **[globe] Projection observer** (style/projection.cpp, style_impl.cpp). As for layers and the light (above), the C++ `ProjectionObserver*` that `Projection::setType` notifies is replaced by the guard `Style::Impl::get_projection_mut` returns, which runs `onProjectionChanged` on drop if the projection's impl `Arc` was replaced.
+- **[globe] The globe is always built** (util/constants.hpp `GLOBE_ENABLED`, `MLN_WITH_GLOBE` in BUILD.bazel and CMakeLists.txt). C++ compiles the globe out without `MLN_WITH_GLOBE`, a flag that exists to keep iOS binaries small, and then draws a style's globe as Mercator and says so in a warning. PLAN.md keeps build configurations out of the port, so the port always has the globe, as C++ does with the flag on (its default), and has no warning.
 - **[style] JSON syntax errors** (style/parser.cpp, util/rapidjson.cpp
   `formatJSONParseError`). The style is parsed with serde_json, so the
   message after "Failed to parse style: " is serde_json's ("expected value
