@@ -48,6 +48,7 @@ rust_test(
         "//crates/mln_map_types",
         "//crates/mln_renderer",
         "//crates/mln_style",
+        "//crates/mln_style_types",
         "//crates/mln_tile_id",
         "//crates/mln_util",
         "//vendor/maplibre-native-base:maplibre_native_base",

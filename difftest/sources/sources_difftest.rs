@@ -24,9 +24,12 @@ use mln_renderer::tile_parameters::TileParameters;
 use mln_renderer::tile_pyramid::TilePyramid;
 use mln_renderer::tile_render_data::TileRenderData;
 use mln_style::conversion::convert_source;
+use mln_style::conversion::Converter;
 use mln_style::layer_properties::LayerProperties;
+use mln_style::projection::Projection;
 use mln_style::source::Source;
 use mln_style::sources::geojson_source::{GeoJSONOptions, GeoJSONSource};
+use mln_style_types::{ProjectionDefinition, ProjectionType, projection_type_name};
 use mln_tile_id::geometry_tile_data::GeometryTileData;
 use mln_tile_id::{CanonicalTileID, OverscaledTileID, UnwrappedTileID};
 use mln_util::constants;
@@ -266,7 +269,13 @@ struct Camera {
     pitch: f64,
 }
 
-fn rust_tiles(source_json: &serde_json::Value, size: Size, camera: &Camera, continuous: bool) -> String {
+fn rust_tiles(
+    source_json: &serde_json::Value,
+    size: Size,
+    camera: &Camera,
+    projection: &ProjectionDefinition,
+    continuous: bool,
+) -> String {
     let source = match convert(source_json, "source") {
         Ok(source) => source,
         Err(error) => return format!("E {error}"),
@@ -282,6 +291,9 @@ fn rust_tiles(source_json: &serde_json::Value, size: Size, camera: &Camera, cont
         ViewportMode::Default,
     );
     transform.resize(size).unwrap();
+    // As Map::Impl::jumpTo: the style's projection is in place before the
+    // jump.
+    transform.set_projection_definition(projection);
     let camera_options = CameraOptions {
         center: Some(LatLng::new(camera.lat, camera.lng).unwrap()),
         zoom: Some(camera.zoom),
@@ -558,6 +570,20 @@ fn camera_of(style: &serde_json::Value) -> Camera {
     }
 }
 
+/// The style's projection at the camera's zoom, as `Map::Impl::projectionAt`
+/// gives it in static and continuous mode.
+fn projection_of(style: &serde_json::Value, zoom: f64) -> ProjectionDefinition {
+    let Some(projection) = style.get("projection") else {
+        return ProjectionDefinition::new(ProjectionType::Mercator);
+    };
+    let mut error = Error::default();
+    match <Projection as Converter>::convert(&Convertible::from(projection), &mut error) {
+        Some(projection) => projection.impl_.evaluate(zoom as f32),
+        // The style parser warns and keeps the default.
+        None => ProjectionDefinition::new(ProjectionType::Mercator),
+    }
+}
+
 fn size_of(style: &serde_json::Value) -> Size {
     let test = style.get("metadata").and_then(|m| m.get("test"));
     let width = test.and_then(|t| t.get("width")).and_then(|v| v.as_u64()).unwrap_or(512);
@@ -598,6 +624,7 @@ fn tile_pyramid_and_features() {
         if size.width == 0 || size.height == 0 {
             continue;
         }
+        let projection = projection_of(&style, camera.zoom);
         let mut tiles_for_features: Vec<CanonicalTileID> = Vec::new();
         for continuous in [false, true] {
             let request = serde_json::json!({
@@ -606,9 +633,14 @@ fn tile_pyramid_and_features() {
                 "size": [size.width, size.height],
                 "camera": {"lng": camera.lng, "lat": camera.lat, "zoom": camera.zoom, "bearing": camera.bearing, "pitch": camera.pitch},
                 "mode": if continuous { "continuous" } else { "static" },
+                "projection": {
+                    "from": projection_type_name(projection.from),
+                    "to": projection_type_name(projection.to),
+                    "transition": projection.transition,
+                },
             });
             let cpp = oracle(&request);
-            let rust = rust_tiles(&source, size, &camera, continuous);
+            let rust = rust_tiles(&source, size, &camera, &projection, continuous);
             views += 1;
             if cpp != rust {
                 tile_mismatches += 1;
