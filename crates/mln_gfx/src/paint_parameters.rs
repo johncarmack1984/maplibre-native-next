@@ -29,7 +29,8 @@ pub trait PaintParameters {
     fn scissor_rect(&self) -> ScissorRect;
 
     fn depth_mode_for_sublayer(&self, n: u8, mask: DepthMaskType) -> DepthMode;
-    fn depth_mode_for_3d(&self) -> DepthMode;
+    /// `depthModeFor3D(gfx::DepthMaskType = gfx::DepthMaskType::ReadWrite)`.
+    fn depth_mode_for_3d(&self, mask: DepthMaskType) -> DepthMode;
 
     /// `renderTileClippingMasks(const RenderTiles&)`. C++ passes the render
     /// tiles; only their tile ids are used (`GetTileIDFunc`), so the port

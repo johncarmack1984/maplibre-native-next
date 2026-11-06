@@ -272,6 +272,20 @@ rust_test(
     ],
 )
 
+# Ports test/style/conversion/sky.test.cpp (marker `// gtest: Group.Name`);
+# its tests evaluate through RenderSky.
+rust_test(
+    name = "gtest_sky",
+    srcs = ["tests/gtest_sky.rs"],
+    deps = [
+        ":mln_renderer",
+        "//crates/mln_conversion",
+        "//crates/mln_style",
+        "//crates/mln_util",
+        "@next_crates//:serde_json",
+    ],
+)
+
 # Ports test/util/subdivision.test.cpp (marker `// gtest: Group.Name`).
 rust_test(
     name = "gtest_subdivision",

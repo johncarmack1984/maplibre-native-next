@@ -87,6 +87,7 @@ pub struct RenderTreeParameters {
     pub time_point: TimePoint,
     /// conformance: `EvaluatedLight light`.
     pub light: crate::render_light::EvaluatedLight,
+    pub sky: Option<crate::render_sky::EvaluatedSky>,
     pub has_3d: bool,
     pub opaque_pass_cut_off: u32,
     /// C++ default-constructs `Color` (transparent black).
@@ -110,6 +111,7 @@ impl RenderTreeParameters {
             debug_options,
             time_point,
             light: Default::default(),
+            sky: None,
             has_3d: false,
             opaque_pass_cut_off: 0,
             background_color: Color::new_unchecked(0.0, 0.0, 0.0, 0.0),

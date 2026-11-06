@@ -123,8 +123,8 @@ rust_library(
     ],
 )
 
-# The render and query tests copied into //metrics (the ones the globe adds
-# or changes), on the Rust renderer. Their manifests differ from the ones
+# The render and query tests copied into //metrics (the ones the globe and
+# the sky add or change), on the Rust renderer. Their manifests differ from the ones
 # above only in base_test_path. While the reference checkout has these
 # tests too, render_tests runs them as well.
 COPIED_MANIFEST_ARGS = select({

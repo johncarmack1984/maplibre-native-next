@@ -205,6 +205,12 @@ impl RendererImpl {
             if let Some(globe_depth) = orchestrator.get_globe_depth_layer_group() {
                 globe_depth.borrow_mut().upload(&*upload_pass);
             }
+            if let Some(sky) = orchestrator.get_sky_layer_group() {
+                sky.borrow_mut().upload(&*upload_pass);
+            }
+            if let Some(atmosphere) = orchestrator.get_atmosphere_layer_group() {
+                atmosphere.borrow_mut().upload(&*upload_pass);
+            }
 
             // Give the render targets a chance to upload
             // dem-heatmap
@@ -289,6 +295,15 @@ impl RendererImpl {
         }
         context.bind_global_uniform_buffers(parameters.render_pass.as_deref().expect("render pass"));
 
+        // drawableSkyPass
+        if let Some(sky) = orchestrator.get_sky_layer_group() {
+            parameters.pass = RenderPass::Translucent;
+            parameters.depth_range_size =
+                1.0 - ((orchestrator.num_layer_groups() + 2) * num_sublayers) as f32 * depth_epsilon;
+            parameters.current_layer = orchestrator.num_layer_groups() as u32 + 1;
+            sky.borrow_mut().render(&mut parameters);
+        }
+
         // drawableOpaquePass
         {
             parameters.pass = RenderPass::Opaque;
@@ -351,6 +366,15 @@ impl RendererImpl {
                 }
                 i -= 1;
             }
+        }
+
+        // drawableAtmospherePass
+        if let Some(atmosphere) = orchestrator.get_atmosphere_layer_group() {
+            parameters.pass = RenderPass::Translucent;
+            parameters.depth_range_size =
+                1.0 - ((orchestrator.num_layer_groups() + 2) * num_sublayers) as f32 * depth_epsilon;
+            parameters.current_layer = orchestrator.num_layer_groups() as u32 + 1;
+            atmosphere.borrow_mut().render(&mut parameters);
         }
 
         // drawableDebugOverlays

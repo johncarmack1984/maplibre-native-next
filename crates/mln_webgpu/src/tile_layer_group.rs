@@ -7,6 +7,7 @@ use mln_gfx::drawable::Drawable as _;
 use mln_gfx::paint_parameters::PaintParameters;
 use mln_gfx::renderer::layer_group::{self, LayerGroupBaseData};
 use mln_gfx::stencil_mode::StencilMode;
+use mln_gfx::types::DepthMaskType;
 use mln_gfx::uniform_buffer::UniformBufferArray;
 
 use crate::drawable::Drawable;
@@ -110,7 +111,7 @@ impl layer_group::LayerGroupBase for TileLayerGroup {
         let own_stencil_modes_taken = parameters.stencil_modes_for_3d(&mut own_stencil_modes);
 
         if features_3d {
-            depth_mode_3d = Some(parameters.depth_mode_for_3d());
+            depth_mode_3d = Some(parameters.depth_mode_for_3d(DepthMaskType::ReadWrite));
             if stencil_3d && has_stencil_tiles {
                 stencil_mode_3d = Some(parameters.stencil_mode_for_3d());
             }

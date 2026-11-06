@@ -87,6 +87,8 @@ pub struct RendererBackend {
 const REGISTERED_SHADERS: &[BuiltIn] = &[
     BuiltIn::BackgroundShader,
     BuiltIn::BackgroundPatternShader,
+    BuiltIn::SkyShader,
+    BuiltIn::AtmosphereShader,
     BuiltIn::CircleShader,
     BuiltIn::ClippingMaskProgram,
     BuiltIn::CollisionBoxShader,

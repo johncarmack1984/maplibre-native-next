@@ -82,8 +82,8 @@ impl PaintParameters for TestPaintParameters<'_> {
         }
         DepthMode { func: mln_gfx::types::DepthFunctionType::LessEqual, mask }
     }
-    fn depth_mode_for_3d(&self) -> DepthMode {
-        DepthMode { func: mln_gfx::types::DepthFunctionType::LessEqual, mask: DepthMaskType::ReadWrite }
+    fn depth_mode_for_3d(&self, mask: DepthMaskType) -> DepthMode {
+        DepthMode { func: mln_gfx::types::DepthFunctionType::LessEqual, mask }
     }
     fn render_tile_clipping_masks(&mut self, _tile_ids: &[UnwrappedTileID]) -> bool {
         true

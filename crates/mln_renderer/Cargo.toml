@@ -108,6 +108,10 @@ name = "gtest_tile_lod"
 path = "tests/gtest_tile_lod.rs"
 
 [[test]]
+name = "gtest_sky"
+path = "tests/gtest_sky.rs"
+
+[[test]]
 name = "gtest_subdivision"
 path = "tests/gtest_subdivision.rs"
 

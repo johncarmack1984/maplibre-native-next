@@ -214,8 +214,8 @@ impl<'a> PaintParameters<'a> {
         DepthMode { func: DepthFunctionType::LessEqual, mask }
     }
 
-    pub fn depth_mode_for_3d(&self) -> DepthMode {
-        DepthMode { func: DepthFunctionType::LessEqual, mask: DepthMaskType::ReadWrite }
+    pub fn depth_mode_for_3d(&self, mask: DepthMaskType) -> DepthMode {
+        DepthMode { func: DepthFunctionType::LessEqual, mask }
     }
 
     pub fn color_mode_for_render_pass(&self) -> ColorMode {
@@ -426,8 +426,8 @@ impl GfxPaintParameters for PaintParameters<'_> {
         PaintParameters::depth_mode_for_sublayer(self, n, mask)
     }
 
-    fn depth_mode_for_3d(&self) -> DepthMode {
-        PaintParameters::depth_mode_for_3d(self)
+    fn depth_mode_for_3d(&self, mask: DepthMaskType) -> DepthMode {
+        PaintParameters::depth_mode_for_3d(self, mask)
     }
 
     fn render_tile_clipping_masks(&mut self, tile_ids: &[UnwrappedTileID]) -> bool {

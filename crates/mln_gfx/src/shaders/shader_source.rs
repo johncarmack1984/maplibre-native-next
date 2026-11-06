@@ -12,6 +12,8 @@ pub enum BuiltIn {
     ClippingMaskProgram,
     BackgroundShader,
     BackgroundPatternShader,
+    SkyShader,
+    AtmosphereShader,
     CircleShader,
     CollisionBoxShader,
     CollisionCircleShader,

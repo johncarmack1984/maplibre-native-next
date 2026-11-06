@@ -313,6 +313,7 @@ impl MapImpl {
                 sprite_loaded: style_impl.are_sprites_loaded(),
                 transition_options: style_impl.get_transition_options(),
                 light: style_impl.get_light_impl(),
+                sky: style_impl.get_sky_impl(),
                 images: style_impl.get_image_impls(),
                 sources: style_impl.get_source_impls(),
                 layers: style_impl.get_layer_impls(),

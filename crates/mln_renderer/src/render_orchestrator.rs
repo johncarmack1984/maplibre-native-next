@@ -202,6 +202,7 @@ pub struct RenderOrchestrator {
     render_layers: HashMap<String, RenderLayerPtr>,
     // conformance: renderLight.
     render_light: crate::render_light::RenderLight,
+    render_sky: Option<crate::render_sky::RenderSky>,
 
     // symbols:
     cross_tile_symbol_index: crate::text::cross_tile_symbol_index::CrossTileSymbolIndex,
@@ -238,6 +239,7 @@ pub struct RenderOrchestrator {
     pending_changes: UniqueChangeRequestVec,
 
     globe_depth_pass: crate::globe_depth_pass::GlobeDepthPass,
+    sky_pass: crate::sky_pass::SkyPass,
 }
 
 impl RenderOrchestrator {
@@ -272,6 +274,7 @@ impl RenderOrchestrator {
             render_layers: HashMap::new(),
             // conformance: renderLight(makeMutable<Light::Impl>())
             render_light: crate::render_light::RenderLight::new(Arc::new(mln_style::light::Impl::default())),
+            render_sky: None,
             background_layer_as_color,
             context_lost: false,
             placed_symbol_data_collected: false,
@@ -283,6 +286,7 @@ impl RenderOrchestrator {
             layer_groups_by_layer_index: BTreeMap::new(),
             layer_group_tweakers: HashMap::new(),
             globe_depth_pass: crate::globe_depth_pass::GlobeDepthPass::default(),
+            sky_pass: crate::sky_pass::SkyPass::default(),
             debug_layer_groups: BTreeMap::new(), // layers: debug
             render_targets: Vec::new(),          // dem-heatmap
             pending_changes: Vec::new(),
@@ -400,6 +404,32 @@ impl RenderOrchestrator {
 
         if light_changed || zoom_changed || global_state_changed || self.render_light.has_transition() {
             self.render_light.evaluate(&evaluation_parameters);
+        }
+
+        // Update sky while preserving transitions between successive configurations.
+        let mut sky_changed = false;
+        if let Some(sky) = &update_parameters.sky {
+            match &mut self.render_sky {
+                None => {
+                    self.render_sky = Some(crate::render_sky::RenderSky::new(sky.clone()));
+                    sky_changed = true;
+                }
+                Some(render_sky) if !Arc::ptr_eq(&render_sky.impl_, sky) => {
+                    render_sky.impl_ = sky.clone();
+                    render_sky.transition(&transition_parameters);
+                    sky_changed = true;
+                }
+                Some(_) => {}
+            }
+        } else if self.render_sky.is_some() {
+            self.render_sky = None;
+            sky_changed = true;
+        }
+
+        if let Some(render_sky) = &mut self.render_sky
+            && (sky_changed || zoom_changed || render_sky.has_transition())
+        {
+            render_sky.evaluate(&evaluation_parameters);
         }
 
         let image_diff = diff_images(&self.image_impls, &update_parameters.images);
@@ -550,6 +580,7 @@ impl RenderOrchestrator {
         ));
         // conformance: the RenderTreeParameters ctor's `renderLight.getEvaluated()`.
         render_tree_parameters.light = self.render_light.get_evaluated().clone();
+        render_tree_parameters.sky = self.render_sky.as_ref().map(|render_sky| render_sky.get_evaluated().clone());
 
         let mut layer_render_items: BTreeMap<u32, LayerRenderItem> = BTreeMap::new();
 
@@ -642,6 +673,7 @@ impl RenderOrchestrator {
                     // On the globe the background is a sphere mesh, not the
                     // backdrop, so it stays a layer.
                     if self.background_layer_as_color
+                        && render_tree_parameters.sky.is_none()
                         && !update_parameters.transform_state.is_globe_rendering()
                         && Arc::ptr_eq(&base_impl, &self.layer_impls[0])
                     {
@@ -834,6 +866,10 @@ impl RenderOrchestrator {
     pub fn has_transitions(&self, _time_point: TimePoint) -> bool {
         // conformance
         if self.render_light.has_transition() {
+            return true;
+        }
+
+        if self.render_sky.as_ref().is_some_and(|render_sky| render_sky.has_transition()) {
             return true;
         }
 
@@ -1071,7 +1107,33 @@ impl RenderOrchestrator {
         }
         self.add_changes(&mut changes);
 
-        self.globe_depth_pass.update(shaders, context, state, update_parameters, has_3d);
+        let tree_parameters = render_tree.get_parameters();
+        self.sky_pass.update(
+            shaders,
+            context,
+            state,
+            &paint_parameters.renderable_size,
+            paint_parameters.pixel_ratio,
+            tree_parameters.sky.as_ref(),
+            &tree_parameters.light,
+        );
+        self.globe_depth_pass.update(
+            shaders,
+            context,
+            state,
+            update_parameters,
+            has_3d || self.sky_pass.has_atmosphere(),
+        );
+    }
+
+    /// `getSkyLayerGroup()`.
+    pub fn get_sky_layer_group(&self) -> Option<LayerGroupBasePtr> {
+        self.sky_pass.get_sky_layer_group().cloned()
+    }
+
+    /// `getAtmosphereLayerGroup()`.
+    pub fn get_atmosphere_layer_group(&self) -> Option<LayerGroupBasePtr> {
+        self.sky_pass.get_atmosphere_layer_group().cloned()
     }
 
     /// `getGlobeDepthLayerGroup()`.

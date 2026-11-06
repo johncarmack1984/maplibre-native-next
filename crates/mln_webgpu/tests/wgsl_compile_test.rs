@@ -20,7 +20,14 @@ use mln_webgpu::shaders::shader_source::{WgslShaderSource, prelude};
 use mln_webgpu::shaders::wgsl_preprocessor::preprocess_wgsl;
 use mln_webgpu::shaders::wgsl_sources::ALL;
 
-const REQUIRED: &[&str] = &["BackgroundShader", "BackgroundPatternShader", "ClippingMaskProgram", "GlobeDepthShader"];
+const REQUIRED: &[&str] = &[
+    "BackgroundShader",
+    "BackgroundPatternShader",
+    "ClippingMaskProgram",
+    "GlobeDepthShader",
+    "SkyShader",
+    "AtmosphereShader",
+];
 
 /// Prelude, the struct prelude and the stage's source, before preprocessing.
 fn assemble(source: &WgslShaderSource, stage: &str) -> String {

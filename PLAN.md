@@ -46,7 +46,7 @@ port, not a redesign:
 - Everything runs through the justfile (`just bazel`, `just test`, ...). On
   NixOS, `just bazel` runs inside the C++ repo's `#linux` flake shell plus
   bazelisk, with machine-local flags in `user.bazelrc`.
-- Test data comes from the C++ repo as Bazel data deps: `@maplibre//metrics:render-test-files` and `@maplibre//metrics:expression-test-files`. The render and query tests the globe adds or changes are also copied into `metrics/` with their C++ paths and run by `//tools/render-test:copied_render_tests`; they still load their tiles and images from the C++ repo's `metrics/cache-style.db`.
+- Test data comes from the C++ repo as Bazel data deps: `@maplibre//metrics:render-test-files` and `@maplibre//metrics:expression-test-files`. The render and query tests the globe and the sky add or change are also copied into `metrics/` with their C++ paths and run by `//tools/render-test:copied_render_tests`; they still load their tiles and images from the C++ repo's `metrics/cache-style.db`.
 
 Changes made in `../maplibre-native` so it works as a dependency (to upstream
 as one PR):

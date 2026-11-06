@@ -162,6 +162,16 @@ pub const FILL_EXTRUSION_VERTEX_ATTRIBUTE_COUNT: usize = 8;
 pub const ID_GLOBE_DEPTH_POS_VERTEX_ATTRIBUTE: usize = 0;
 pub const GLOBE_DEPTH_VERTEX_ATTRIBUTE_COUNT: usize = 1;
 
+// --- sky (`idSkyPropsUBO` / `idAtmospherePropsUBO = getEnumValue(drawableReservedUBOCount, layerUBOStartId)`)
+pub const ID_SKY_PROPS_UBO: usize = DRAWABLE_RESERVED_UBO_COUNT; // packed
+pub const SKY_LAYER_UBO_COUNT: usize = ID_SKY_PROPS_UBO + 1;
+pub const ID_ATMOSPHERE_PROPS_UBO: usize = DRAWABLE_RESERVED_UBO_COUNT; // packed
+pub const ATMOSPHERE_LAYER_UBO_COUNT: usize = ID_ATMOSPHERE_PROPS_UBO + 1;
+pub const ID_SKY_POS_VERTEX_ATTRIBUTE: usize = 0;
+pub const SKY_VERTEX_ATTRIBUTE_COUNT: usize = 1;
+pub const ID_ATMOSPHERE_POS_VERTEX_ATTRIBUTE: usize = 0;
+pub const ATMOSPHERE_VERTEX_ATTRIBUTE_COUNT: usize = 1;
+
 pub const ID_HEATMAP_DRAWABLE_UBO: usize = ID_DRAWABLE_RESERVED_VERTEX_ONLY_UBO; // SSBO
 pub const HEATMAP_LAYER_SSBO_COUNT: usize = DRAWABLE_RESERVED_UBO_COUNT;
 pub const ID_HEATMAP_EVALUATED_PROPS_UBO: usize = HEATMAP_LAYER_SSBO_COUNT; // packed
