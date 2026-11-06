@@ -201,6 +201,23 @@ impl CrossTileSymbolLayerIndex {
         let mut state = bucket.state();
         let state = &mut *state;
 
+        let this_zoom_indexes = self.indexes.entry(tile_id.overscaled_z).or_default();
+        if !this_zoom_indexes.contains_key(tile_id) {
+            // The globe moves a loaded tile to another wrap instead of loading
+            // it again: same bucket, same symbols.
+            let moved = this_zoom_indexes
+                .iter()
+                .find(|(key, index)| {
+                    index.bucket_instance_id == bucket.bucket_instance_id && key.canonical == tile_id.canonical
+                })
+                .map(|(key, _)| *key);
+            if let Some(moved) = moved {
+                let mut index = this_zoom_indexes.remove(&moved).expect("moved index");
+                index.coord = *tile_id;
+                this_zoom_indexes.insert(*tile_id, index);
+            }
+        }
+
         let previous = self
             .indexes
             .entry(tile_id.overscaled_z)
@@ -592,6 +609,31 @@ mod tests {
         assert_eq!(cross_tile_id(&grandchild_bucket, 0), 1);
         // Does not match the previous value for Windsor because that tile was removed
         assert_eq!(cross_tile_id(&grandchild_bucket, 1), 5);
+    }
+
+    // gtest: CrossTileSymbolLayerIndex.tileMovedToAnotherWrapKeepsItsSymbols
+    #[test]
+    fn tile_moved_to_another_wrap_keeps_its_symbols() {
+        // The globe moves a loaded tile to another wrap instead of loading it
+        // again: its bucket keeps the IDs.
+        let mut index = CrossTileSymbolLayerIndex::new(Rc::new(Cell::new(0)));
+
+        let bucket = make_bucket(
+            vec![make_symbol_instance(1000.0, 1000.0, "Detroit"), make_symbol_instance(2000.0, 2000.0, "Toronto")],
+            1,
+        );
+
+        let id = OverscaledTileID::with_zxy(0, 0, 0, 0, 0);
+        assert!(index.add_bucket(&id, &mat4_zero(), &bucket));
+        assert_eq!(cross_tile_id(&bucket, 0), 1);
+        assert_eq!(cross_tile_id(&bucket, 1), 2);
+
+        let moved = id.unwrap_to(1);
+        assert!(!index.add_bucket(&moved, &mat4_zero(), &bucket));
+        assert_eq!(cross_tile_id(&bucket, 0), 1);
+        assert_eq!(cross_tile_id(&bucket, 1), 2);
+        let current_ids: HashSet<u32> = [1].into_iter().collect();
+        assert!(!index.remove_stale_buckets(&current_ids));
     }
 
     // gtest: CrossTileSymbolLayerIndex.resetIDs
