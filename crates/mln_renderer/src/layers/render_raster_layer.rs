@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use mln_gfx::index_vector::{IndexVectorBase, IndexVectorBasePtr};
+use mln_gfx::projection_variant::ProjectionVariant;
 use mln_gfx::shaders::segment::SegmentBase;
 use mln_gfx::shaders::shader_defines::*;
 use mln_gfx::texture2d::{SamplerState, Texture2DPtr};
@@ -43,6 +44,7 @@ use super::raster_layer_tweaker::{ImageDrawableData, RasterLayerTweaker};
 use super::{TileDrawables, drawable_has_layer_tweaker, shared_vertices};
 use crate::buckets::raster_bucket::{RasterBucket, RasterLayoutVertex};
 use crate::change_request::{ChangeRequest, UniqueChangeRequestVec};
+use crate::globe_tile_mesh::GlobeTileMeshCache;
 use crate::layer_tweaker::{LayerTweakerPtr, layer_tweaker_slot};
 use crate::paint_parameters::PaintParameters;
 use crate::render_layer::{
@@ -69,6 +71,7 @@ pub struct RenderRasterLayer {
     static_data_vertices: Option<VertexVectorBasePtr>,
     static_data_indices: Option<IndexVectorBasePtr>,
     static_data_segments: Option<Rc<Vec<SegmentBase>>>,
+    globe_meshes: GlobeTileMeshCache<RasterLayoutVertex>,
 
     /// `bucket.texture2d`, per bucket.
     textures: HashMap<SimpleIdentity, Texture2DPtr>,
@@ -92,6 +95,7 @@ impl RenderRasterLayer {
             static_data_vertices: None,
             static_data_indices: None,
             static_data_segments: None,
+            globe_meshes: GlobeTileMeshCache::new(),
             textures: HashMap::new(),
             image_data: None,
             image_layer_group: None,
@@ -334,12 +338,18 @@ impl RenderLayer for RenderRasterLayer {
         &mut self,
         shaders: &ShaderRegistry,
         context: &dyn Context,
-        _state: &TransformState,
+        state: &TransformState,
         _update_parameters: &Arc<UpdateParameters>,
         _paint_parameters: &PaintParameters<'_>,
         _render_tree: &RenderTree,
         changes: &mut UniqueChangeRequestVec,
     ) {
+        if self.update_projection_variant(state) {
+            self.raster_shader = None;
+            if self.base.projection_variant == ProjectionVariant::Mercator {
+                self.globe_meshes.clear();
+            }
+        }
         let render_tiles = self.base.render_tiles.clone().filter(|t| !t.is_empty());
         let image_data = self.image_data.clone();
         if render_tiles.is_none() && image_data.is_none() {
@@ -521,14 +531,30 @@ impl RenderLayer for RenderRasterLayer {
 
             self.set_textures(context, builder.as_mut(), bucket);
 
-            // buildVertexData(builder, nullptr, bucket): the bucket only
-            // fills in geometry for masked tiles, otherwise the standard
-            // tile extent geometry is used.
+            // buildVertexData(builder, nullptr, bucket, tileID): the bucket
+            // only fills in geometry for masked tiles, otherwise the standard
+            // tile extent geometry is used; on the globe, the pole-capped
+            // grid of what the mask keeps.
             {
                 let geometry = bucket.geometry();
-                let shared =
-                    !geometry.vertices.is_empty() && !geometry.indices.is_empty() && !geometry.segments.is_empty();
-                if shared {
+                let globe = self.base.projection_variant == ProjectionVariant::Globe;
+                let shared = !globe
+                    && !geometry.vertices.is_empty()
+                    && !geometry.indices.is_empty()
+                    && !geometry.segments.is_empty();
+                if globe {
+                    let globe_mesh =
+                        self.globe_meshes.get(&tile_id.canonical, &geometry.mask, RasterBucket::layout_vertex);
+                    let vertices: VertexVectorBasePtr = globe_mesh.vertices.clone();
+                    let attrs = raster_vertex_attributes(context, &vertices);
+                    builder.set_vertex_attributes(Some(attrs));
+                    builder.set_raw_vertices(Vec::new(), globe_mesh.vertices.elements(), AttributeDataType::Short2);
+                    builder.set_segments_shared(
+                        DrawMode::Triangles(),
+                        Some(globe_mesh.indices.clone()),
+                        &globe_mesh.segments,
+                    );
+                } else if shared {
                     let vertices = shared_vertices(&geometry.vertices);
                     let attrs = raster_vertex_attributes(context, &vertices);
                     builder.set_vertex_attributes(Some(attrs));
