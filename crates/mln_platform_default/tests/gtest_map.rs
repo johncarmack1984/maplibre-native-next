@@ -31,12 +31,14 @@ use mln_style::layers::line_layer::LineLayer;
 use mln_style::layers::location_indicator_layer::LocationIndicatorLayer;
 use mln_style::layers::raster_layer::RasterLayer;
 use mln_style::layers::symbol_layer::SymbolLayer;
+use mln_style::projection::Projection;
 use mln_style::property_expression::PropertyExpression;
 use mln_style::sources::geojson_source::GeoJSONSource;
 use mln_style::sources::image_source::ImageSource;
 use mln_style::sources::tile_source::{UrlOrTileset, VectorSource};
 use mln_style::style_property::Kind as StylePropertyKind;
 use mln_style::{PropertyValue, TransitionOptions};
+use mln_style_types::{ProjectionDefinition, ProjectionType};
 use mln_util::Color;
 use mln_util::chrono::{Duration, Timestamp};
 use mln_util::geo::{EdgeInsets, LatLng, LatLngBounds, ScreenCoordinate, WrapMode};
@@ -773,7 +775,7 @@ fn style_expired() {
 
 // gtest: Map.StyleExpiredWithAnnotations
 #[test]
-#[ignore = "TODO(port): annotations (Map::addAnnotation, AnnotationManager); see map.test.cpp:647"]
+#[ignore = "TODO(port): annotations (Map::addAnnotation, AnnotationManager); see map.test.cpp:688"]
 fn style_expired_with_annotations() {
     // Adding an annotation should not prevent revalidation of an expired style.
     let test = MapTest::fake();
@@ -813,6 +815,39 @@ fn style_expired_with_render() {
 
     test.file_source.respond(Kind::Style, &response);
     assert_eq!(1, test.file_source.requests_len());
+}
+
+// gtest: Map.StyleExpiredWithProjection
+#[test]
+fn style_expired_with_projection() {
+    // A projection set at runtime, whole or in place, keeps the next response
+    // from overwriting the style.
+
+    for in_place in [false, true] {
+        let test = MapTest::fake();
+
+        test.map().get_style_mut().load_url("maptiler://maps/test");
+
+        let response = expired_or_fresh_response("test/fixtures/api/empty.json", hours_from_now(-1));
+        test.file_source.respond(Kind::Style, &response);
+
+        if in_place {
+            test.map()
+                .get_style_mut()
+                .get_projection_mut()
+                .set_type(PropertyValue::Constant(ProjectionDefinition::from_name("globe")));
+        } else {
+            let mut projection = Projection::new();
+            projection.set_type(PropertyValue::Constant(ProjectionDefinition::from_name("globe")));
+            test.map().get_style_mut().set_projection(projection);
+        }
+
+        test.file_source.respond(Kind::Style, &response);
+        let map = test.map();
+        let type_ = map.get_style().get_projection().get_type();
+        assert!(type_.is_constant(), "{in_place}");
+        assert_eq!(ProjectionType::Globe, type_.as_constant().from, "{in_place}");
+    }
 }
 
 // gtest: Map.StyleEarlyMutation
@@ -881,17 +916,17 @@ fn style_loaded_signal() {
 // Test for https://github.com/mapbox/mapbox-gl-native/issues/7902
 // gtest: Map.StyleNetworkErrorRetry
 #[test]
-#[ignore = "TEST_REQUIRES_SERVER: needs the HTTP test server (test/storage/server.js) and MapTest<OnlineFileSource>; see map.test.cpp:751"]
+#[ignore = "TEST_REQUIRES_SERVER: needs the HTTP test server (test/storage/server.js) and MapTest<OnlineFileSource>; see map.test.cpp:823"]
 fn style_network_error_retry() {
-    // test/map/map.test.cpp:751: loadURL("http://127.0.0.1:3000/style-fail-once-500")
+    // test/map/map.test.cpp:823: loadURL("http://127.0.0.1:3000/style-fail-once-500")
     // over an OnlineFileSource; the style loads after one retry.
 }
 
 // gtest: Map.StyleNotFound
 #[test]
-#[ignore = "TEST_REQUIRES_SERVER: needs the HTTP test server (test/storage/server.js) and MapTest<OnlineFileSource>; see map.test.cpp:763"]
+#[ignore = "TEST_REQUIRES_SERVER: needs the HTTP test server (test/storage/server.js) and MapTest<OnlineFileSource>; see map.test.cpp:835"]
 fn style_not_found() {
-    // test/map/map.test.cpp:763: a 404 style is not retried (with and
+    // test/map/map.test.cpp:835: a 404 style is not retried (with and
     // without cache headers).
 }
 
@@ -1044,9 +1079,9 @@ fn dont_load_unneeded_tiles() {
 
 // gtest: Map.ContinuousRendering
 #[test]
-#[ignore = "TODO(port): AssetFileSource (the style's asset:// URLs under ResourceOptions::withAssetPath); also TEST_DISABLED_ON_CI (timing-dependent); see map.test.cpp:922"]
+#[ignore = "TODO(port): AssetFileSource (the style's asset:// URLs under ResourceOptions::withAssetPath); also TEST_DISABLED_ON_CI (timing-dependent); see map.test.cpp:994"]
 fn continuous_rendering() {
-    // test/map/map.test.cpp:922: a Continuous map over
+    // test/map/map.test.cpp:994: a Continuous map over
     // ResourceOptions().withCachePath(":memory:").withAssetPath(
     // "test/fixtures/api/assets") loads test/fixtures/api/water.json and must
     // stop rendering (no frame for 1 s) within 10 s.
@@ -1363,9 +1398,9 @@ fn no_hang_on_missing_image() {
 
 // gtest: Map.PrefetchDeltaOverride
 #[test]
-#[ignore = "TODO(port): CustomGeometrySource (the test counts tiles of a vector and a custom source); see map.test.cpp:1261"]
+#[ignore = "TODO(port): CustomGeometrySource (the test counts tiles of a vector and a custom source); see map.test.cpp:1350"]
 fn prefetch_delta_override() {
-    // test/map/map.test.cpp:1261: with setPrefetchZoomDelta(0) on a vector and
+    // test/map/map.test.cpp:1350: with setPrefetchZoomDelta(0) on a vector and
     // a CustomGeometrySource, z16 requests 2 x 4 tiles; resetting the delta
     // to the default requests 4 parent tiles per source.
 }
@@ -1374,9 +1409,9 @@ fn prefetch_delta_override() {
 // if there is a significant change.
 // gtest: Map.PrefetchDeltaOverrideCustomSource
 #[test]
-#[ignore = "TODO(port): CustomGeometrySource; see map.test.cpp:1337"]
+#[ignore = "TODO(port): CustomGeometrySource; see map.test.cpp:1528"]
 fn prefetch_delta_override_custom_source() {
-    // test/map/map.test.cpp:1337: removing and re-adding the custom source
+    // test/map/map.test.cpp:1528: removing and re-adding the custom source
     // re-requests the z16 tiles and their parents (8 requests).
 }
 
@@ -1385,9 +1420,9 @@ fn prefetch_delta_override_custom_source() {
 // currently used spritesheet.
 // gtest: Map.ExpiredSpriteSheet
 #[test]
-#[ignore = "TEST_REQUIRES_SERVER: the expired sprite forwarded into the cache is refetched from the HTTP test server (127.0.0.1:3000/online) once the network status is online; also needs a frontend that intercepts update() (UpdateParameters images sorted, fewer than 4); see map.test.cpp:1400"]
+#[ignore = "TEST_REQUIRES_SERVER: the expired sprite forwarded into the cache is refetched from the HTTP test server (127.0.0.1:3000/online) once the network status is online; also needs a frontend that intercepts update() (UpdateParameters images sorted, fewer than 4); see map.test.cpp:1591"]
 fn expired_sprite_sheet() {
-    // test/map/map.test.cpp:1400.
+    // test/map/map.test.cpp:1591.
 }
 
 // gtest: Map.SourceMinimumUpdateIntervalOverride
@@ -1632,9 +1667,9 @@ fn volatile_source() {
 
 // gtest: Map.ObserveShaderRegistration
 #[test]
-#[ignore = "TODO(port): MapObserver::onRegisterShaders (gfx::ShaderRegistry observer hook); see map.test.cpp:1671"]
+#[ignore = "TODO(port): MapObserver::onRegisterShaders (gfx::ShaderRegistry observer hook); see map.test.cpp:1862"]
 fn observe_shader_registration() {
-    // test/map/map.test.cpp:1671: the first render calls onRegisterShaders,
+    // test/map/map.test.cpp:1862: the first render calls onRegisterShaders,
     // the second does not.
 }
 
@@ -1717,9 +1752,9 @@ fn resource_error() {
 
 // gtest: Map.StencilOverflow
 #[test]
-#[ignore = "TODO(port): CustomGeometrySource and RenderResult::stats (gfx::RenderingStats::stencilUpdates); see map.test.cpp:1767"]
+#[ignore = "TODO(port): CustomGeometrySource and RenderResult::stats (gfx::RenderingStats::stencilUpdates); see map.test.cpp:1964"]
 fn stencil_overflow() {
-    // test/map/map.test.cpp:1767: a CustomGeometrySource with 16 px tiles at
+    // test/map/map.test.cpp:1964: a CustomGeometrySource with 16 px tiles at
     // z5 renders without crashing; ASSERT_LE(0, result.stats.stencilUpdates).
 }
 
@@ -1775,9 +1810,9 @@ fn invalid_utf8_in_tile() {
 
 // gtest: Map.ObserveTileLifecycle
 #[test]
-#[ignore = "TODO(port): MapObserver::onTileAction and onPre/PostCompileShader (TileOperation), and AssetFileSource for the asset:// style; see map.test.cpp:1843"]
+#[ignore = "TODO(port): MapObserver::onTileAction and onPre/PostCompileShader (TileOperation), and AssetFileSource for the asset:// style; see map.test.cpp:2040"]
 fn observe_tile_lifecycle() {
-    // test/map/map.test.cpp:1843: checks the order of the tile operations
+    // test/map/map.test.cpp:2040: checks the order of the tile operations
     // (RequestedFromCache/Network, LoadFromCache/Network, StartParse,
     // EndParse, Cancelled) for the four z10 tiles around San Francisco and
     // the pre/post compile events of the fill and fill-outline shaders.
@@ -1882,7 +1917,7 @@ fn style_update_zoom_dependency() {
 
 // gtest: Map.LineLayerDepthDistribution
 #[test]
-#[ignore = "TODO(port): annotations: in C++ the AnnotationManager's points layer is the style's first layer, so the background added here is drawn per tile; the port has no annotation layer, so the background becomes the clear color and also fills the 5 rows above the pitched world that C++ leaves transparent (measured: 0.01953125 > 0.0006, exactly those 5 rows; DEVIATIONS.md [render] Layers without a source); see map.test.cpp:2105"]
+#[ignore = "TODO(port): annotations: in C++ the AnnotationManager's points layer is the style's first layer, so the background added here is drawn per tile; the port has no annotation layer, so the background becomes the clear color and also fills the 5 rows above the pitched world that C++ leaves transparent (measured: 0.01953125 > 0.0006, exactly those 5 rows; DEVIATIONS.md [render] Layers without a source); see map.test.cpp:2509"]
 fn line_layer_depth_distribution() {
     let test = MapTest::new();
 
@@ -1930,7 +1965,7 @@ fn line_layer_depth_distribution() {
 
 // gtest: Map.SetFrustumOffset
 #[test]
-#[ignore = "TODO(port): annotations: in C++ the AnnotationManager's points layer is the style's first layer, so the background added here is drawn as a drawable inside the frustum-offset scissor; the port has no annotation layer, so the background becomes the clear color, which fills the whole frame (measured on `after`: 0.628662109375 > 0.0006; `before` passes; DEVIATIONS.md [render] Layers without a source); see map.test.cpp:2156"]
+#[ignore = "TODO(port): annotations: in C++ the AnnotationManager's points layer is the style's first layer, so the background added here is drawn as a drawable inside the frustum-offset scissor; the port has no annotation layer, so the background becomes the clear color, which fills the whole frame (measured on `after`: 0.628662109375 > 0.0006; `before` passes; DEVIATIONS.md [render] Layers without a source); see map.test.cpp:2560"]
 fn set_frustum_offset() {
     let test = MapTest::new();
 
@@ -2029,7 +2064,7 @@ fn count_green_pixels(image: &PremultipliedImage) -> usize {
 
 // gtest: Map.LocationIndicatorAccuracyColorsTransition
 #[test]
-#[ignore = "TODO(port): RenderLocationIndicatorLayer (the location-indicator layer type is registered in the style but not rendered); see map.test.cpp:2255"]
+#[ignore = "TODO(port): RenderLocationIndicatorLayer (the location-indicator layer type is registered in the style but not rendered); see map.test.cpp:2659"]
 fn location_indicator_accuracy_colors_transition() {
     let test = MapTest::with_mode(1.0, MapMode::Continuous);
     test.load_json(
@@ -2105,18 +2140,18 @@ fn location_indicator_accuracy_colors_transition() {
 
 // gtest: Map.RenderingStatisticsTrackDrawsAcrossFrames
 #[test]
-#[ignore = "TODO(port): HeadlessFrontend::RenderResult::stats (gfx::RenderingStats numFrames/numDrawCalls/totalDrawCalls); see map.test.cpp:2321"]
+#[ignore = "TODO(port): HeadlessFrontend::RenderResult::stats (gfx::RenderingStats numFrames/numDrawCalls/totalDrawCalls); see map.test.cpp:2725"]
 fn rendering_statistics_track_draws_across_frames() {
-    // test/map/map.test.cpp:2321: numFrames counts up per render, numDrawCalls
+    // test/map/map.test.cpp:2725: numFrames counts up per render, numDrawCalls
     // is the frame's and totalDrawCalls the running sum; a hidden circle layer
     // draws nothing.
 }
 
 // gtest: Map.LocationIndicatorWithoutImages
 #[test]
-#[ignore = "TODO(port): RenderResult::stats (numDrawCalls) and RenderLocationIndicatorLayer; see map.test.cpp:2342"]
+#[ignore = "TODO(port): RenderResult::stats (numDrawCalls) and RenderLocationIndicatorLayer; see map.test.cpp:2746"]
 fn location_indicator_without_images() {
-    // test/map/map.test.cpp:2342: a location-indicator with accuracy-radius 0
+    // test/map/map.test.cpp:2746: a location-indicator with accuracy-radius 0
     // and no images produces no draw call.
 }
 

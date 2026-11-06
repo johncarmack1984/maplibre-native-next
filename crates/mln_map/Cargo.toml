@@ -30,5 +30,8 @@ mln_util.workspace = true
 name = "gtest_action_journal"
 path = "tests/gtest_action_journal.rs"
 
+[dev-dependencies]
+mln_tile_id = { package = "mln-rs-tile-id", path = "../mln_tile_id" }
+
 [lints]
 workspace = true
