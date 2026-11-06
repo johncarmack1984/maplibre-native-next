@@ -260,6 +260,18 @@ pub trait RenderLayer {
 
     // Non-virtual members of the C++ class.
 
+    /// Picks the shader variant for the state's projection; returns true and
+    /// drops the drawables when it changed.
+    fn update_projection_variant(&mut self, state: &TransformState) -> bool {
+        let variant = if state.is_globe_rendering() { ProjectionVariant::Globe } else { ProjectionVariant::Mercator };
+        if variant == self.base().projection_variant {
+            return false;
+        }
+        self.base_mut().projection_variant = variant;
+        self.remove_all_drawables();
+        true
+    }
+
     /// `addRenderPassesFromTiles()`.
     fn add_render_passes_from_tiles(&mut self) {
         let base = self.base_mut();

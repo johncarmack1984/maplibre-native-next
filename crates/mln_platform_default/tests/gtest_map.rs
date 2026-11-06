@@ -46,7 +46,7 @@ use mln_style::sources::tile_source::{UrlOrTileset, VectorSource};
 use mln_style::style_property::Kind as StylePropertyKind;
 use mln_style::{PropertyValue, TransitionOptions};
 use mln_style_types::{ProjectionDefinition, ProjectionType};
-use mln_tile_id::OverscaledTileID;
+use mln_tile_id::{CanonicalTileID, OverscaledTileID};
 use mln_util::Color;
 use mln_util::chrono::{Duration, Timestamp};
 use mln_util::geo::{EdgeInsets, LatLng, LatLngBounds, ScreenCoordinate, WrapMode};
@@ -1478,6 +1478,86 @@ fn globe_prefetch_requests_coarser_tiles() {
 
     assert!(zooms.borrow().contains(&4));
     assert!(zooms.borrow().contains(&8));
+}
+
+// gtest: Map.GlobeTileDrawnForItsChildrenMeetsFinerTilesWithoutAGap
+#[test]
+fn globe_tile_drawn_for_its_children_meets_finer_tiles_without_a_gap() {
+    let test = MapTest::with_mode(1.0, MapMode::Continuous);
+    test.frontend.clone().set_size(Size::new(512, 512));
+    test.map().set_size(Size::new(512, 512)).unwrap();
+    test.load_json(
+        r#"{"version": 8, "projection": {"type": "vertical-perspective"},
+                 "sources": {"ocean": {"type": "vector", "tiles": ["a/{z}/{x}/{y}"]}},
+                 "layers": [{"id": "background", "type": "background", "paint": {"background-color": "red"}},
+                            {"id": "ocean", "type": "fill", "source": "ocean", "source-layer": "water",
+                             "paint": {"fill-color": "blue"}}]}"#,
+    );
+
+    let ocean = Arc::new(read_bytes("test/fixtures/map/globe_tile_masks/ocean.mvt"));
+    // C++ guards `holdChildren` and `served` with a mutex; the stub file source answers on this thread.
+    let hold_children = Rc::new(Cell::new(false));
+    let served: Rc<RefCell<BTreeSet<CanonicalTileID>>> = Rc::new(RefCell::new(BTreeSet::new()));
+    {
+        let hold_children = hold_children.clone();
+        let served = served.clone();
+        test.file_source.set_response(Kind::Tile, move |resource: &Resource| {
+            let tile = resource.tile_data.as_ref().expect("tile data");
+            if hold_children.get() && tile.z == 8 && tile.x / 2 == 20 && tile.y / 2 == 49 {
+                return None;
+            }
+            served.borrow_mut().insert(CanonicalTileID::new(tile.z as u8, tile.x as u32, tile.y as u32));
+            let mut response = Response::new();
+            response.data = Some(ocean.clone());
+            Some(response)
+        });
+    }
+
+    // The view's center is the corner of tile 7/20/49. Its children never arrive, so it is drawn in their place
+    // beside tile 8/41/100, along an edge it draws as one chord and its finer neighbor as two.
+    test.map().jump_to(&cam().with_center(Some(ll(36.6026, -120.9375))).with_zoom(Some(7.6)));
+    {
+        let run_loop = test.run_loop.clone();
+        test.observer.did_finish_loading_map_callback.set(move |_| run_loop.stop());
+    }
+    run_with_timeout(&test.run_loop, 60);
+    test.observer.did_finish_loading_map_callback.clear();
+
+    hold_children.set(true);
+    served.borrow_mut().clear();
+    let parsed: Rc<RefCell<BTreeSet<CanonicalTileID>>> = Rc::new(RefCell::new(BTreeSet::new()));
+    {
+        let parsed = parsed.clone();
+        test.observer.on_tile_action_callback.set(move |(op, id, _)| {
+            if op == TileOperation::EndParse {
+                parsed.borrow_mut().insert(id.canonical);
+            }
+        });
+    }
+    let all_parsed = Rc::new(Cell::new(false));
+    {
+        let all_parsed = all_parsed.clone();
+        let served = served.clone();
+        let parsed = parsed.clone();
+        let run_loop = test.run_loop.clone();
+        test.observer.did_finish_rendering_frame_callback.set(move |_| {
+            if all_parsed.get() {
+                run_loop.stop();
+                return;
+            }
+            let served = served.borrow();
+            all_parsed.set(!served.is_empty() && served.is_subset(&parsed.borrow()));
+        });
+    }
+    test.map().jump_to(&cam().with_zoom(Some(8.2)));
+    run_with_timeout(&test.run_loop, 60);
+
+    let image = {
+        let _scope = BackendScope::new(test.frontend.get_backend(), ScopeType::Explicit);
+        test.frontend.read_still_image()
+    };
+    let background = image.data.chunks_exact(4).filter(|pixel| pixel[0] > 128 && pixel[2] < 128).count();
+    assert_eq!(0, background);
 }
 
 // Test that custom source's tile pyramid is reset

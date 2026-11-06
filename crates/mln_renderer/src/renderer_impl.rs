@@ -292,12 +292,24 @@ impl RendererImpl {
             parameters.depth_range_size =
                 1.0 - ((orchestrator.num_layer_groups() + 2) * num_sublayers) as f32 * depth_epsilon;
 
-            // draw layer groups, opaque pass
-            parameters.current_layer = 0;
-            orchestrator.visit_layer_groups_reversed(|layer_group| {
-                layer_group.render(&mut parameters);
-                parameters.current_layer += 1;
-            });
+            // draw layer groups, opaque pass: front to back with the depth
+            // buffer, except on the globe, where 2D layers carry no depth and
+            // are painted bottom to top.
+            if render_tree_parameters.transform_params.state.is_globe_rendering() {
+                parameters.current_layer = (orchestrator.num_layer_groups() as u32).wrapping_sub(1);
+                orchestrator.visit_layer_groups(|layer_group| {
+                    layer_group.render(&mut parameters);
+                    if parameters.current_layer > 0 {
+                        parameters.current_layer -= 1;
+                    }
+                });
+            } else {
+                parameters.current_layer = 0;
+                orchestrator.visit_layer_groups_reversed(|layer_group| {
+                    layer_group.render(&mut parameters);
+                    parameters.current_layer += 1;
+                });
+            }
         }
 
         // drawableTranslucentPass

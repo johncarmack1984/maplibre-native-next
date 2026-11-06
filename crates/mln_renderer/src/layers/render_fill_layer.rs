@@ -245,7 +245,7 @@ impl RenderLayer for RenderFillLayer {
         &mut self,
         shaders: &ShaderRegistry,
         context: &dyn Context,
-        _state: &TransformState,
+        state: &TransformState,
         _update_parameters: &Arc<UpdateParameters>,
         _paint_parameters: &PaintParameters<'_>,
         _render_tree: &RenderTree,
@@ -283,6 +283,8 @@ impl RenderLayer for RenderFillLayer {
             self.base.layer_tweaker = Some(tweaker.clone());
             changes.push(ChangeRequest::AddLayerTweaker(layer_group.clone(), Rc::downgrade(&tweaker)));
         }
+
+        self.update_projection_variant(state);
 
         if self.fill_shader_group.is_none() {
             self.fill_shader_group = shaders.get_shader_group(FILL_SHADER_NAME);
