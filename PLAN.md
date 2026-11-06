@@ -32,19 +32,7 @@ port, not a redesign:
 
 ## 1. Build
 
-- **Bazel** builds and tests everything (rules_rust 0.74, Rust edition
-  2024). The root `Cargo.toml` builds the same libraries for the crates.io
-  release (RELEASING.md), as the `mln-rs-*` packages behind `mln-rs`, and
-  runs their tests (`cargo test --workspace`; not the difftests or the
-  tools' suites). `MODULE.bazel` depends
-  on the C++ repo as the `maplibre` module through
-  `local_path_override(path = "../maplibre-native")`, so tests see uncommitted
-  C++ changes. The reference checkout is the `maplibre-native-next-support`
-  branch of `louwers/maplibre-native` (CI pins its tip, currently
-  `4e03abe94cf562b10562c528578d109c7273694d`): upstream
-  `maplibre/maplibre-native` commit
-  `8e144d0eca082e8350335b2172a6dfdc939b9cef` plus the dependency changes
-  below (and a `cc_static_library` load() that Bazel 9 needs).
+- **Bazel** builds and tests everything (rules_rust 0.74, Rust edition 2024). The root `Cargo.toml` builds the same libraries for the crates.io release (RELEASING.md), as the `mln-rs-*` packages behind `mln-rs`, and runs their tests (`cargo test --workspace`; not the difftests or the tools' suites). `MODULE.bazel` depends on the C++ repo as the `maplibre` module through `local_path_override(path = "../maplibre-native")`, so tests see uncommitted C++ changes. The reference checkout is the `maplibre-native-next-support-globe` branch of `johncarmack1984/maplibre-native` (CI pins its tip, currently `7ea2826156200c9cd7e65aeaf9eb480f1adf2c02`): the globe branch of maplibre/maplibre-native#4533 (`phased/12h`) with the `maplibre-native-next-support` branch of `louwers/maplibre-native` merged in, which is upstream `maplibre/maplibre-native` commit `8e144d0eca082e8350335b2172a6dfdc939b9cef` plus the dependency changes below (and a `cc_static_library` load() that Bazel 9 needs).
 - Third-party crates are set in the root `Cargo.toml` workspace only:
   `MODULE.bazel` reads it and `Cargo.lock` (`crate.from_cargo`) into
   `@next_crates`, so both builds use the same versions and features. The

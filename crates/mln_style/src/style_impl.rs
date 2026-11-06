@@ -1,10 +1,12 @@
 // Ports src/mln/style/style_impl.hpp + src/mln/style/style_impl.cpp.
 //
 // Deviations (structural; see also layer.rs):
-// - C++ `Style::Impl` is the `LayerObserver` and `LightObserver` of its
-//   layers and light. Here `get_layer_mut` / `get_light_mut` return guards
-//   that call `on_layer_changed` / `on_light_changed` when dropped, if the
-//   layer's or light's impl was replaced.
+// - C++ `Style::Impl` is the `LayerObserver`, `LightObserver` and
+//   `ProjectionObserver` of its layers, light and projection. Here
+//   `get_layer_mut` / `get_light_mut` / `get_projection_mut` return guards
+//   that call `on_layer_changed` / `on_light_changed` /
+//   `on_projection_changed` when dropped, if the layer's, light's or
+//   projection's impl was replaced.
 // - The observer is an `Rc<dyn Observer>` (C++: `Observer*`, default
 //   `&nullObserver`).
 // - C++ `Style::Impl` is the SpriteLoaderObserver of its sprite loader,
@@ -49,6 +51,7 @@ use crate::light::{self, Light};
 use crate::map::camera::CameraOptions;
 use crate::observer::{NullObserver, Observer, SourceObserver};
 use crate::parser::Parser;
+use crate::projection::{self, Projection};
 use crate::source::{self, Source};
 use crate::sprite::Sprite;
 use crate::transition_options::TransitionOptions;
@@ -235,6 +238,7 @@ pub struct Impl {
     layers: Collection<dyn Layer>,
     transition_options: TransitionOptions,
     light: Light,
+    projection: Projection,
     shared: Rc<RefCell<SpriteShared>>,
 
     // Global state for the "global-state" expression. The map itself is
@@ -305,6 +309,7 @@ impl Impl {
             layers: Collection::default(),
             transition_options: TransitionOptions::default(),
             light: Light::new(),
+            projection: Projection::new(),
             shared,
             global_state: Arc::new(GlobalStateMap::new()),
             global_state_defaults: GlobalStateMap::new(),
@@ -441,6 +446,7 @@ impl Impl {
         self.default_camera.roll = Some(parser.roll);
 
         self.set_light(parser.light.clone());
+        self.set_projection(parser.projection.clone());
 
         if let Some(file_source) = self.file_source.clone() {
             if parser.sprites.is_empty() {
@@ -667,6 +673,23 @@ impl Impl {
         LightRefMut { style: self, before }
     }
 
+    // Projection
+
+    pub fn set_projection(&mut self, projection: Projection) {
+        self.projection = projection;
+        self.on_projection_changed();
+    }
+
+    pub fn get_projection(&self) -> &Projection {
+        &self.projection
+    }
+
+    /// `Projection* getProjection()` for mutation (see `get_layer_mut`).
+    pub fn get_projection_mut(&mut self) -> ProjectionRefMut<'_> {
+        let before = self.projection.impl_.clone();
+        ProjectionRefMut { style: self, before }
+    }
+
     pub fn get_name(&self) -> String {
         self.name.clone()
     }
@@ -752,7 +775,6 @@ impl Impl {
     pub fn get_light_impl(&self) -> Immutable<light::Impl> {
         self.light.impl_.clone()
     }
-
     pub fn dump_debug_logs(&self) {
         Log::info(Event::General, format!("styleURL: {}", self.url));
         for source in self.sources.iter() {
@@ -815,6 +837,12 @@ impl Impl {
     // LightObserver implementation.
 
     pub fn on_light_changed(&mut self) {
+        self.observer().on_update();
+    }
+
+    // ProjectionObserver implementation.
+
+    pub fn on_projection_changed(&mut self) {
         self.observer().on_update();
     }
 }
@@ -911,6 +939,34 @@ impl Drop for LightRefMut<'_> {
     fn drop(&mut self) {
         if !Arc::ptr_eq(&self.before, &self.style.light.impl_) {
             self.style.on_light_changed();
+        }
+    }
+}
+
+/// The mutable projection of a style; notifies the style when dropped (see
+/// `Impl::get_projection_mut`).
+pub struct ProjectionRefMut<'a> {
+    style: &'a mut Impl,
+    before: Immutable<projection::Impl>,
+}
+
+impl std::ops::Deref for ProjectionRefMut<'_> {
+    type Target = Projection;
+    fn deref(&self) -> &Projection {
+        &self.style.projection
+    }
+}
+
+impl std::ops::DerefMut for ProjectionRefMut<'_> {
+    fn deref_mut(&mut self) -> &mut Projection {
+        &mut self.style.projection
+    }
+}
+
+impl Drop for ProjectionRefMut<'_> {
+    fn drop(&mut self) {
+        if !Arc::ptr_eq(&self.before, &self.style.projection.impl_) {
+            self.style.on_projection_changed();
         }
     }
 }

@@ -20,6 +20,7 @@ use crate::conversion::{Converter, convert, convert_source};
 use crate::expression::GlobalStateMap;
 use crate::layer::{FontStack, Layer};
 use crate::light::Light;
+use crate::projection::Projection;
 use crate::source::Source;
 use crate::sprite::Sprite;
 use crate::transition_options::TransitionOptions;
@@ -37,6 +38,7 @@ pub struct Parser {
 
     pub transition: TransitionOptions,
     pub light: Light,
+    pub projection: Projection,
 
     /// Default values of the root "state" property, keyed by state property
     /// name, used by the "global-state" expression.
@@ -61,6 +63,7 @@ impl Default for Parser {
             layers: Vec::new(),
             transition: TransitionOptions::with_duration(DEFAULT_TRANSITION_DURATION),
             light: Light::new(),
+            projection: Projection::new(),
             global_state_defaults: GlobalStateMap::new(),
             name: String::new(),
             lat_lng: LatLng::default(),
@@ -159,6 +162,10 @@ impl Parser {
             self.parse_light(value);
         }
 
+        if let Some(value) = object.get("projection") {
+            self.parse_projection(value);
+        }
+
         if let Some(value) = object.get("state") {
             self.parse_state(value);
         }
@@ -212,6 +219,16 @@ impl Parser {
         };
 
         self.light = converted;
+    }
+
+    fn parse_projection(&mut self, value: &serde_json::Value) {
+        let mut error = Error::default();
+        let Some(converted) = <Projection as Converter>::convert(&Convertible::from(value), &mut error) else {
+            Log::warning(Event::ParseStyle, &error.message);
+            return;
+        };
+
+        self.projection = converted;
     }
 
     fn parse_state(&mut self, value: &serde_json::Value) {

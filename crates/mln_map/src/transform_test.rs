@@ -1,4 +1,6 @@
-// Ports test/map/transform.test.cpp (TEST(Transform, *) and TEST(Camera, *)).
+// Ports test/map/transform.test.cpp (TEST(Transform, *), TEST(Camera, *) and
+// the projection seam's TEST(MercatorProjection, *) and
+// TEST(TransformState, *)).
 //
 // The C++ AnimationOptions callbacks capture the Transform by reference and
 // assert on it. The Rust callbacks can't borrow the Transform that is calling
@@ -12,9 +14,13 @@
 
 use std::cell::{Cell, RefCell};
 
+use mln_map_types::MercatorProjection;
+use mln_map_types::projection_base::ProjectionBase;
 use mln_map_types::util_camera::Camera as UtilCamera;
+use mln_tile_id::{CanonicalTileID, UnwrappedTileID};
 use mln_util::chrono::{milliseconds, seconds};
-use mln_util::constants::{LATITUDE_MAX, LONGITUDE_MAX, MAX_ZOOM};
+use mln_util::constants::{EXTENT, LATITUDE_MAX, LONGITUDE_MAX, MAX_ZOOM};
+use mln_util::mat4::{Mat4, matrix};
 use mln_util::quaternion::Quaternion;
 use mln_util::vectors::{Vec3, Vec4};
 
@@ -1509,4 +1515,137 @@ fn set_orientation_with_roll_no_pitch() {
     assert_near(bearing - roll, bearing_, 1.0e-9);
     assert_near(pitch, pitch_, 1.0e-9);
     assert_near(0.0, roll_, 1.0e-9);
+}
+
+/// The tile matrix as `TransformState::matrix_for` computed it before the
+/// projection seam.
+fn reference_tile_matrix(scale: f64, tile_id: &UnwrappedTileID) -> Mat4 {
+    let tile_scale: u64 = 1u64 << tile_id.canonical.z;
+    let s = Projection::world_size(scale) / tile_scale as f64;
+
+    let mut m: Mat4 = [0.0; 16];
+    matrix::identity(&mut m);
+    let a = m;
+    matrix::translate(
+        &mut m,
+        &a,
+        (tile_id.canonical.x as i64 + tile_id.wrap as i64 * tile_scale as i64) as f64 * s,
+        tile_id.canonical.y as f64 * s,
+        0.0,
+    );
+    let a = m;
+    matrix::scale(&mut m, &a, s / EXTENT as f64, s / EXTENT as f64, 1.0);
+    m
+}
+
+// gtest: MercatorProjection.MatchesStaticProjection
+#[test]
+fn matches_static_projection() {
+    let projection = MercatorProjection;
+    for zoom in [0.0, 1.0, 3.5, 7.25, 12.0, 18.0] {
+        let scale = 2.0f64.powf(zoom);
+        for lat in [-85.0, -45.0, 0.0, 30.0, 80.0] {
+            for lon in [-180.0, -90.0, 0.0, 45.0, 179.0] {
+                let lat_lng = ll(lat, lon);
+                let expected = Projection::project(&lat_lng, scale);
+                let actual = projection.project(&lat_lng, scale);
+                assert_eq!(expected.x, actual.x);
+                assert_eq!(expected.y, actual.y);
+
+                let unprojected = projection.unproject(&actual, scale, WrapMode::Wrapped).unwrap();
+                let expected_unprojected = Projection::unproject(&expected, scale, WrapMode::Wrapped).unwrap();
+                assert_eq!(expected_unprojected.latitude(), unprojected.latitude());
+                assert_eq!(expected_unprojected.longitude(), unprojected.longitude());
+            }
+        }
+    }
+}
+
+// gtest: TransformState.ProjectionDataMatchesTileMatrix
+#[test]
+fn projection_data_matches_tile_matrix() {
+    let mut transform = new_transform();
+    let tile_ids = [
+        UnwrappedTileID::new(0, 0, 0),
+        UnwrappedTileID::new(1, 0, 1),
+        UnwrappedTileID::new(3, 5, 2),
+        UnwrappedTileID::new(10, 512, 340),
+        UnwrappedTileID::new(14, 16000, 8000),
+        UnwrappedTileID::with_wrap(-1, CanonicalTileID::new(2, 1, 1)),
+    ];
+
+    for size in [Size::new(1, 1), Size::new(512, 512), Size::new(1024, 768), Size::new(333, 777)] {
+        transform.resize(size).unwrap();
+        for zoom in [0.0, 2.5, 6.0, 11.75, 16.0] {
+            for pitch in [0.0, 30.0, 60.0] {
+                for bearing in [0.0, 45.0, 210.0] {
+                    for roll in [0.0, 15.0] {
+                        transform.jump_to(
+                            &cam()
+                                .with_center(Some(ll(37.7749, -122.4194)))
+                                .with_zoom(Some(zoom))
+                                .with_pitch(Some(pitch))
+                                .with_bearing(Some(bearing))
+                                .with_roll(Some(roll)),
+                        );
+                        let state = transform.get_state();
+                        let scale = state.get_scale();
+
+                        for aligned in [false, true] {
+                            let mut proj_matrix: Mat4 = [0.0; 16];
+                            state.get_proj_matrix(&mut proj_matrix, 1, aligned);
+
+                            for tile_id in &tile_ids {
+                                let tile_matrix = reference_tile_matrix(scale, tile_id);
+                                let mut actual_tile_matrix: Mat4 = [0.0; 16];
+                                state.matrix_for(&mut actual_tile_matrix, tile_id);
+                                assert_eq!(tile_matrix, actual_tile_matrix);
+
+                                let mut expected: Mat4 = [0.0; 16];
+                                matrix::multiply(&mut expected, &proj_matrix, &tile_matrix);
+                                assert_eq!(expected, state.get_projection_data_with(tile_id, &proj_matrix).main_matrix);
+                            }
+                        }
+
+                        for tile_id in &tile_ids {
+                            let mut expected: Mat4 = [0.0; 16];
+                            matrix::multiply(
+                                &mut expected,
+                                &state.get_projection_matrix(),
+                                &reference_tile_matrix(scale, tile_id),
+                            );
+                            assert_eq!(expected, state.get_projection_data(tile_id).main_matrix);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// gtest: TransformState.ProjectionDataMercatorFields
+#[test]
+fn projection_data_mercator_fields() {
+    let mut transform = new_transform();
+    transform.resize(Size::new(512, 512)).unwrap();
+    transform.jump_to(
+        &cam().with_center(Some(ll(10.0, 20.0))).with_zoom(Some(5.0)).with_pitch(Some(20.0)).with_bearing(Some(30.0)),
+    );
+    let state = transform.get_state();
+
+    for tile_id in [
+        UnwrappedTileID::new(0, 0, 0),
+        UnwrappedTileID::new(3, 5, 2),
+        UnwrappedTileID::with_wrap(-1, CanonicalTileID::new(2, 1, 1)),
+    ] {
+        let data = state.get_projection_data(&tile_id);
+        let tile_scale = (1u32 << tile_id.canonical.z) as f64;
+        assert_eq!(data.main_matrix, data.fallback_matrix);
+        assert_eq!(tile_id.canonical.x as f64 / tile_scale, data.tile_mercator_coords[0]);
+        assert_eq!(tile_id.canonical.y as f64 / tile_scale, data.tile_mercator_coords[1]);
+        assert_eq!(1.0 / tile_scale / EXTENT as f64, data.tile_mercator_coords[2]);
+        assert_eq!(1.0 / tile_scale / EXTENT as f64, data.tile_mercator_coords[3]);
+        assert_eq!([0.0, 0.0, 0.0, 0.0], data.clipping_plane);
+        assert_eq!(0.0, data.projection_transition);
+    }
 }

@@ -15,12 +15,15 @@ permissions:
 
 env:
   # The C++ core the port is tested against (MODULE.bazel expects it at
-  # ../maplibre-native): maplibre-native plus the changes that make its Bazel
-  # module usable as a dependency. The ref is the tip of that fork's
-  # maplibre-native-next-support branch: upstream maplibre/maplibre-native
-  # commit 8e144d0eca082e8350335b2172a6dfdc939b9cef plus those changes.
-  MAPLIBRE_NATIVE_REPOSITORY: louwers/maplibre-native
-  MAPLIBRE_NATIVE_REF: 4e03abe94cf562b10562c528578d109c7273694d
+  # ../maplibre-native): maplibre-native with the globe, plus the changes that
+  # make its Bazel module usable as a dependency. The ref is the tip of that
+  # fork's maplibre-native-next-support-globe branch: the branch of
+  # maplibre/maplibre-native#4533 (phased/12h) with
+  # louwers/maplibre-native's maplibre-native-next-support branch (upstream
+  # commit 8e144d0eca082e8350335b2172a6dfdc939b9cef plus those changes)
+  # merged in.
+  MAPLIBRE_NATIVE_REPOSITORY: johncarmack1984/maplibre-native
+  MAPLIBRE_NATIVE_REF: 7ea2826156200c9cd7e65aeaf9eb480f1adf2c02
 
 jobs:
   # All tests plus the full shared C++ render suite (a manual target), on

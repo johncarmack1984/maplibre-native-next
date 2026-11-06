@@ -1,5 +1,5 @@
 // Shared by the difftest references: the byte encoding of type::Type (one
-// byte with the variant index; Array (9) is followed by N (0xFF = none) and
+// byte with the variant index; Array (10) is followed by N (0xFF = none) and
 // the item type) and copying a result string out.
 
 #pragma once
@@ -31,12 +31,14 @@ inline type::Type decodeType(const uint8_t*& p) {
         case 5:
             return type::Padding;
         case 6:
-            return type::VariableAnchorOffsetCollection;
+            return type::ProjectionDefinition;
         case 7:
-            return type::Object;
+            return type::VariableAnchorOffsetCollection;
         case 8:
+            return type::Object;
+        case 9:
             return type::Value;
-        case 9: {
+        case 10: {
             const uint8_t n = *p++;
             type::Type item = decodeType(p);
             if (n == 0xFF) {
@@ -44,11 +46,11 @@ inline type::Type decodeType(const uint8_t*& p) {
             }
             return type::Array(std::move(item), std::size_t(n));
         }
-        case 10:
-            return type::Collator;
         case 11:
-            return type::Formatted;
+            return type::Collator;
         case 12:
+            return type::Formatted;
+        case 13:
             return type::Error;
         default:
             return type::Image;

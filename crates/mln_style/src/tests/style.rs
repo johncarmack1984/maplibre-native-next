@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use feature::Value;
 use mln_conversion::Convertible;
-use mln_style_types::VisibilityType;
+use mln_style_types::{ProjectionDefinition, VisibilityType};
 use mln_util::LatLng;
 use mln_util::chrono::milliseconds;
 use mln_util::image::PremultipliedImage;
@@ -19,6 +19,8 @@ use crate::layer::Layer;
 use crate::layers::line_layer::{Impl as LineLayerImpl, LineLayer};
 use crate::layers::line_layer_properties::LineColor;
 use crate::observer::{Observer, SourceObserver};
+use crate::projection::Projection;
+use crate::property_value::PropertyValue;
 use crate::sources::tile_source::{UrlOrTileset, VectorSource};
 use crate::style::{Impl, Style};
 use crate::transition_options::TransitionOptions;
@@ -86,6 +88,30 @@ fn properties() {
     assert_eq!(0.0, style.get_default_camera().zoom.unwrap());
     assert_eq!(0.0, style.get_default_camera().bearing.unwrap());
     assert_eq!(0.0, style.get_default_camera().pitch.unwrap());
+}
+
+// gtest: Style.Projection
+#[test]
+fn projection() {
+    let mut style = stub_style();
+
+    style.load_json(r#"{"projection": {"type": "globe"}}"#);
+    assert_eq!(ProjectionDefinition::from_name("globe"), *style.get_projection().get_type().as_constant());
+
+    style.load_json(r#"{}"#);
+    assert!(style.get_projection().get_type().is_undefined());
+
+    let mut projection = Projection::new();
+    projection.set_type(PropertyValue::Constant(ProjectionDefinition::from_name("vertical-perspective")));
+    style.set_projection(projection);
+    assert_eq!(
+        ProjectionDefinition::from_name("vertical-perspective"),
+        *style.get_projection().get_type().as_constant()
+    );
+
+    // A name that is not a projection keeps the default, with a warning.
+    style.load_json(r#"{"projection": {"type": "orthographic"}}"#);
+    assert!(style.get_projection().get_type().is_undefined());
 }
 
 // gtest: Style.GlobalStatePropertyRequiresLoadedStyle
