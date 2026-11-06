@@ -41,8 +41,10 @@ use_repo(rust, "rust_toolchains")
 
 register_toolchains("@rust_toolchains//:all")
 
-# Third-party crates. Bazel is the only build: crates in this repo are plain
-# rust_library targets, so adding one never touches this file. Only add a
+# Third-party crates. Bazel is the build; the root Cargo.toml lists the same
+# crates with the same features for the crates.io release (RELEASING.md), so
+# change both. Crates in this repo are plain rust_library targets, so adding
+# one never touches this file. Only add a
 # crate here when nothing in the C++ core has to be ported for it (see
 # PLAN.md, "Dependency map"). The repo is not called "crates" because
 # @maplibre already uses that name for rustutils.
@@ -99,19 +101,6 @@ crate.annotation(
 crate.spec(
     package = "harfrust",
     version = "0.15",
-)
-
-# Two HarfRust 0.15 vs HarfBuzz differences found by //difftest/text (anchor
-# rounding ties, fallback space widths); see DEVIATIONS.md [text]. Drop this
-# once fixed upstream.
-crate.annotation(
-    crate = "harfrust",
-    patch_args = ["-p1"],
-    # GNU patch: Bazel's built-in patcher rejects this patch, which GNU patch
-    # applies cleanly to harfrust 0.15.0.
-    patch_tool = "patch",
-    patches = ["//crates/mln_text/patches:harfrust_hb_rounding.patch"],
-    repositories = ["next_crates"],
 )
 
 # decodeWEBP (platform/default/src/mln/util/webp_reader.cpp); pure Rust.
