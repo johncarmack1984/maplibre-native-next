@@ -720,6 +720,7 @@ impl RenderOrchestrator {
         }
 
         let mut layers_need_placement: Vec<RenderLayerPtr> = Vec::new();
+        let mut layers_following_placement: Vec<RenderLayerPtr> = Vec::new();
         let mut opaque_pass_cut_off_estimation = layer_render_items.len();
         for render_item in layer_render_items.values() {
             let mut render_layer = render_item.layer.borrow_mut();
@@ -737,6 +738,9 @@ impl RenderOrchestrator {
             });
             if render_layer.needs_placement() {
                 layers_need_placement.push(render_item.layer.clone());
+            }
+            if !render_layer.get_follower_data().is_empty() {
+                layers_following_placement.push(render_item.layer.clone());
             }
             if render_tree_parameters.opaque_pass_cut_off == 0 {
                 opaque_pass_cut_off_estimation -= 1;
@@ -758,7 +762,8 @@ impl RenderOrchestrator {
             .longitude() as f32;
         for layer in layers_need_placement.iter().rev() {
             let layer = layer.borrow();
-            let result = self.cross_tile_symbol_index.add_layer(&*layer, longitude);
+            let result =
+                self.cross_tile_symbol_index.add_layer(&*layer, longitude, &update_parameters.transform_state);
             if is_map_mode_continuous {
                 used_symbol_layers.insert(layer.get_id().to_owned());
                 symbol_buckets_added = symbol_buckets_added || result.contains(AddLayerResult::BUCKETS_ADDED);
@@ -839,9 +844,11 @@ impl RenderOrchestrator {
             source_render_items,
             start_time,
         );
-        // symbols: layersNeedPlacement, placement, updateSymbolOpacities.
+        // symbols: layersNeedPlacement, layersFollowingPlacement, placement,
+        // updateSymbolOpacities.
         render_tree.set_placement(
             layers_need_placement,
+            layers_following_placement,
             self.placement_controller.get_placement().clone(),
             symbol_buckets_changed,
         );
