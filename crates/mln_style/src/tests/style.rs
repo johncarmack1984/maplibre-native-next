@@ -7,11 +7,11 @@ use std::sync::Arc;
 use feature::Value;
 use mln_conversion::Convertible;
 use mln_style_types::{ProjectionDefinition, VisibilityType};
-use mln_util::LatLng;
 use mln_util::chrono::milliseconds;
 use mln_util::image::PremultipliedImage;
 use mln_util::logging::{Event, EventSeverity};
 use mln_util::size::Size;
+use mln_util::{Color, LatLng};
 
 use super::util::{FixtureLog, parse_json, read_file};
 use crate::image;
@@ -21,6 +21,7 @@ use crate::layers::line_layer_properties::LineColor;
 use crate::observer::{Observer, SourceObserver};
 use crate::projection::Projection;
 use crate::property_value::PropertyValue;
+use crate::sky::Sky;
 use crate::sources::tile_source::{UrlOrTileset, VectorSource};
 use crate::style::{Impl, Style};
 use crate::transition_options::TransitionOptions;
@@ -471,6 +472,77 @@ fn visibility_expression_rejects_other_dependencies() {
     let error = style.get_layer_mut("background").unwrap().set_property("visibility", &Convertible::from(&json), None);
     assert!(error.is_some());
     assert_eq!(VisibilityType::Visible, style.get_layer("background").unwrap().get_visibility());
+}
+
+/// gtest `EXPECT_FLOAT_EQ`: within 4 ULPs.
+fn assert_float_eq(expected: f32, actual: f32) {
+    let diff = (i64::from(expected.to_bits()) - i64::from(actual.to_bits())).abs();
+    assert!(diff <= 4, "expected {expected}, got {actual}");
+}
+
+// gtest: Style.SkyPresenceAndReplacement
+#[test]
+fn sky_presence_and_replacement() {
+    let mut style = stub_style();
+
+    assert!(style.get_sky().is_none());
+
+    style.load_json(r#"{"sky":{}}"#);
+    assert!(style.get_sky().expect("sky").get_sky_color().is_undefined());
+
+    style.load_json(r#"{"sky":{"sky-color":"blue","atmosphere-blend":0.4}}"#);
+    let sky = style.get_sky().expect("sky");
+    assert_eq!(Color::blue(), *sky.get_sky_color().as_constant());
+    assert_float_eq(0.4, *sky.get_atmosphere_blend().as_constant());
+
+    let mut replacement = Sky::new();
+    replacement.set_fog_color(PropertyValue::Constant(Color::red()));
+    style.set_sky(Some(replacement));
+    let sky = style.get_sky().expect("sky");
+    assert!(sky.get_sky_color().is_undefined());
+    assert!(sky.get_atmosphere_blend().is_undefined());
+    assert_eq!(Color::red(), *sky.get_fog_color().as_constant());
+
+    style.set_sky(None);
+    assert!(style.get_sky().is_none());
+
+    style.load_json(r#"{"sky":{"sky-color":"white"}}"#);
+    assert!(style.get_sky().is_some());
+    style.load_json(r#"{}"#);
+    assert!(style.get_sky().is_none());
+
+    style.load_json(r#"{"sky":[]}"#);
+    assert!(style.get_sky().is_none());
+}
+
+// gtest: Style.SkyProjectionAndGlobalStateCoexist
+#[test]
+fn sky_projection_and_global_state_coexist() {
+    let mut style = stub_style();
+
+    style.load_json(
+        r#"{
+        "version": 8,
+        "sky": {"sky-color": "blue"},
+        "projection": {"type": "globe"},
+        "state": {"showLabels": {"default": true}},
+        "sources": {},
+        "layers": []
+    }"#,
+    );
+
+    assert_eq!(Color::blue(), *style.get_sky().expect("sky").get_sky_color().as_constant());
+    assert_eq!(ProjectionDefinition::from_name("globe"), *style.get_projection().get_type().as_constant());
+    assert_eq!(Value::Bool(true), style.get_global_state()["showLabels"]);
+
+    style.set_global_state_property("showLabels", &Value::Bool(false));
+    assert_eq!(Value::Bool(false), style.get_global_state()["showLabels"]);
+    assert_eq!(Color::blue(), *style.get_sky().expect("sky").get_sky_color().as_constant());
+    assert_eq!(ProjectionDefinition::from_name("globe"), *style.get_projection().get_type().as_constant());
+
+    style.set_sky(None);
+    assert!(style.get_sky().is_none());
+    assert_eq!(Value::Bool(false), style.get_global_state()["showLabels"]);
 }
 
 fn vector_source(id: &str) -> Box<VectorSource> {

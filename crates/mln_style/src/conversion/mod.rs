@@ -23,6 +23,7 @@ pub mod position;
 pub mod projection;
 pub mod property_value;
 pub mod rotation;
+pub mod sky;
 pub mod source;
 pub mod sprite;
 pub mod stringify;

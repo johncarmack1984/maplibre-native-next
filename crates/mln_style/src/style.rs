@@ -10,8 +10,9 @@ use crate::layer::Layer;
 use crate::light::Light;
 use crate::map::camera::CameraOptions;
 use crate::projection::Projection;
+use crate::sky::Sky;
 use crate::source::Source;
-pub use crate::style_impl::{Impl, LayerRefMut, LightRefMut, ProjectionRefMut};
+pub use crate::style_impl::{Impl, LayerRefMut, LightRefMut, ProjectionRefMut, SkyRefMut};
 use crate::transition_options::TransitionOptions;
 
 #[derive(Debug)]
@@ -87,6 +88,22 @@ impl Style {
 
     pub fn set_light(&mut self, light: Light) {
         self.impl_.set_light(light);
+    }
+
+    // Sky
+    /// `setSky(std::unique_ptr<Sky>)`; `None` removes the sky.
+    pub fn set_sky(&mut self, sky: Option<Sky>) {
+        self.impl_.mutated = true;
+        self.impl_.set_sky(sky);
+    }
+
+    pub fn get_sky_mut(&mut self) -> Option<SkyRefMut<'_>> {
+        self.impl_.mutated = true;
+        self.impl_.get_sky_mut()
+    }
+
+    pub fn get_sky(&self) -> Option<&Sky> {
+        self.impl_.get_sky()
     }
 
     // Projection

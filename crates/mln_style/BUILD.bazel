@@ -46,6 +46,9 @@ filegroup(
     srcs = glob([
         "src/layers/*_layer.rs",
         "src/layers/*_layer_properties.rs",
-    ]) + ["src/light.rs"],
+    ]) + [
+        "src/light.rs",
+        "src/sky.rs",
+    ],
     visibility = ["//tools/style-codegen:__pkg__"],
 )

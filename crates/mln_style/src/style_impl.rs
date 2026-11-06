@@ -1,12 +1,13 @@
 // Ports src/mln/style/style_impl.hpp + src/mln/style/style_impl.cpp.
 //
 // Deviations (structural; see also layer.rs):
-// - C++ `Style::Impl` is the `LayerObserver`, `LightObserver` and
-//   `ProjectionObserver` of its layers, light and projection. Here
-//   `get_layer_mut` / `get_light_mut` / `get_projection_mut` return guards
-//   that call `on_layer_changed` / `on_light_changed` /
-//   `on_projection_changed` when dropped, if the layer's, light's or
-//   projection's impl was replaced.
+// - C++ `Style::Impl` is the `LayerObserver`, `LightObserver`,
+//   `SkyObserver` and `ProjectionObserver` of its layers, light, sky and
+//   projection. Here `get_layer_mut` / `get_light_mut` / `get_sky_mut` /
+//   `get_projection_mut` return guards that call `on_layer_changed` /
+//   `on_light_changed` / `on_sky_changed` / `on_projection_changed` when
+//   dropped, if the layer's, light's, sky's or projection's impl was
+//   replaced.
 // - The observer is an `Rc<dyn Observer>` (C++: `Observer*`, default
 //   `&nullObserver`).
 // - C++ `Style::Impl` is the SpriteLoaderObserver of its sprite loader,
@@ -52,6 +53,7 @@ use crate::map::camera::CameraOptions;
 use crate::observer::{NullObserver, Observer, SourceObserver};
 use crate::parser::Parser;
 use crate::projection::{self, Projection};
+use crate::sky::{self, Sky};
 use crate::source::{self, Source};
 use crate::sprite::Sprite;
 use crate::transition_options::TransitionOptions;
@@ -238,6 +240,7 @@ pub struct Impl {
     layers: Collection<dyn Layer>,
     transition_options: TransitionOptions,
     light: Light,
+    sky: Option<Sky>,
     projection: Projection,
     shared: Rc<RefCell<SpriteShared>>,
 
@@ -309,6 +312,7 @@ impl Impl {
             layers: Collection::default(),
             transition_options: TransitionOptions::default(),
             light: Light::new(),
+            sky: None,
             projection: Projection::new(),
             shared,
             global_state: Arc::new(GlobalStateMap::new()),
@@ -446,6 +450,7 @@ impl Impl {
         self.default_camera.roll = Some(parser.roll);
 
         self.set_light(parser.light.clone());
+        self.set_sky(parser.sky.clone());
         self.set_projection(parser.projection.clone());
 
         if let Some(file_source) = self.file_source.clone() {
@@ -673,6 +678,25 @@ impl Impl {
         LightRefMut { style: self, before }
     }
 
+    // Sky
+
+    /// `setSky(std::unique_ptr<Sky>)`: `None` removes the sky, as C++'s
+    /// `nullptr` does.
+    pub fn set_sky(&mut self, sky: Option<Sky>) {
+        self.sky = sky;
+        self.observer().on_update();
+    }
+
+    pub fn get_sky(&self) -> Option<&Sky> {
+        self.sky.as_ref()
+    }
+
+    /// `Sky* getSky()` for mutation (see `get_layer_mut`).
+    pub fn get_sky_mut(&mut self) -> Option<SkyRefMut<'_>> {
+        let before = self.sky.as_ref()?.impl_.clone();
+        Some(SkyRefMut { style: self, before })
+    }
+
     // Projection
 
     pub fn set_projection(&mut self, projection: Projection) {
@@ -775,6 +799,12 @@ impl Impl {
     pub fn get_light_impl(&self) -> Immutable<light::Impl> {
         self.light.impl_.clone()
     }
+
+    /// The sky's impl, if the style has a sky, for the renderer's
+    /// `UpdateParameters`.
+    pub fn get_sky_impl(&self) -> Option<Immutable<sky::Impl>> {
+        self.sky.as_ref().map(|sky| sky.impl_.clone())
+    }
     pub fn dump_debug_logs(&self) {
         Log::info(Event::General, format!("styleURL: {}", self.url));
         for source in self.sources.iter() {
@@ -837,6 +867,12 @@ impl Impl {
     // LightObserver implementation.
 
     pub fn on_light_changed(&mut self) {
+        self.observer().on_update();
+    }
+
+    // SkyObserver implementation.
+
+    pub fn on_sky_changed(&mut self) {
         self.observer().on_update();
     }
 
@@ -939,6 +975,34 @@ impl Drop for LightRefMut<'_> {
     fn drop(&mut self) {
         if !Arc::ptr_eq(&self.before, &self.style.light.impl_) {
             self.style.on_light_changed();
+        }
+    }
+}
+
+/// The mutable sky of a style; notifies the style when dropped (see
+/// `Impl::get_sky_mut`).
+pub struct SkyRefMut<'a> {
+    style: &'a mut Impl,
+    before: Immutable<sky::Impl>,
+}
+
+impl std::ops::Deref for SkyRefMut<'_> {
+    type Target = Sky;
+    fn deref(&self) -> &Sky {
+        self.style.sky.as_ref().expect("a sky")
+    }
+}
+
+impl std::ops::DerefMut for SkyRefMut<'_> {
+    fn deref_mut(&mut self) -> &mut Sky {
+        self.style.sky.as_mut().expect("a sky")
+    }
+}
+
+impl Drop for SkyRefMut<'_> {
+    fn drop(&mut self) {
+        if !Arc::ptr_eq(&self.before, &self.style.sky.as_ref().expect("a sky").impl_) {
+            self.style.on_sky_changed();
         }
     }
 }
