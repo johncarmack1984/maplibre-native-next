@@ -7,9 +7,11 @@
 //     -> the source conversion: "E <error>" or the GeoJSON source's
 //        options and URL (see dumpSource).
 //   {"cmd": "tiles", "source": "<source JSON>", "size": [w, h],
-//    "camera": {"lng", "lat", "zoom", "bearing", "pitch"}, "mode": "static" | "continuous"}
+//    "camera": {"lng", "lat", "zoom", "bearing", "pitch"}, "mode": "static" | "continuous",
+//    "projection": {"from", "to", "transition"}}
 //     -> the tiles a TilePyramid creates and renders for that view: the
 //        first update with loading tiles, then again with all tiles loaded.
+//        The projection is the style's at the camera's zoom.
 //   {"cmd": "features", "source": "<source JSON>", "tiles": [[z, x, y], ...]}
 //     -> per tile, the features GeoJSONTileData hands to the worker: type,
 //        id, properties and geometries (after fixupPolygons).
@@ -21,6 +23,7 @@
 #include <mln/renderer/tile_pyramid.hpp>
 #include <mln/renderer/tile_render_data.hpp>
 #include <mln/style/conversion/source.hpp>
+#include <mln/style/projection_definition.hpp>
 #include <mln/style/rapidjson_conversion.hpp>
 #include <mln/style/sources/geojson_source.hpp>
 #include <mln/style/sources/geojson_source_impl.hpp>
@@ -195,6 +198,13 @@ std::string dumpTiles(const rapidjson::Value& request) {
 
     Transform transform;
     transform.resize(Size(request["size"][0].GetUint(), request["size"][1].GetUint()));
+    // The style's projection at the camera's zoom, applied before the jump as Map::Impl::jumpTo applies it.
+    if (request.HasMember("projection")) {
+        const auto& projection = request["projection"];
+        const auto from = projectionTypeFromName(projection["from"].GetString());
+        const auto to = projectionTypeFromName(projection["to"].GetString());
+        transform.setProjectionDefinition(ProjectionDefinition(*from, *to, projection["transition"].GetDouble()));
+    }
     const auto& camera = request["camera"];
     CameraOptions cameraOptions;
     cameraOptions.center = LatLng(camera["lat"].GetDouble(), camera["lng"].GetDouble());

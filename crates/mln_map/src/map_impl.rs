@@ -18,6 +18,7 @@ use crate::map_observer::{CameraChangeMode, MapLoadError, MapObserver, RenderFra
 use crate::map_options::MapOptions;
 use crate::transform::{Transform, TransformObserver};
 use mln_map_types::{CameraOptions, MapDebugOptions, MapMode, TileLodMode};
+use mln_renderer::tile::tile::TileOperation;
 use mln_renderer::{ExceptionPtr, RenderMode, RendererFrontend, RendererObserver, UpdateParameters};
 use mln_style::observer::{Observer as StyleObserver, SourceObserver};
 use mln_style::source::Source;
@@ -26,6 +27,7 @@ use mln_actor::{TaggedScheduler, scheduler};
 use mln_storage::FileSource;
 use mln_style::Style;
 use mln_style_types::{ProjectionDefinition, ProjectionType};
+use mln_tile_id::OverscaledTileID;
 use mln_util::chrono::{Clock, TimePoint};
 use mln_util::identity::SimpleIdentity;
 use mln_util::exception::{NotFoundException, StyleLoadException, StyleParseException};
@@ -487,6 +489,12 @@ impl RendererObserver for MapImpl {
                 self.process_pending_style_events();
             }
         }
+    }
+
+    fn on_tile_action(&self, op: TileOperation, id: &OverscaledTileID, source_id: &str) {
+        self.observer.on_tile_action(op, id, source_id);
+
+        // TODO(port): actionJournal->impl->onTileAction(op, id, sourceID).
     }
 
     fn on_render_error(&self, error: ExceptionPtr) {

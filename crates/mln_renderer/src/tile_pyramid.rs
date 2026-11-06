@@ -18,6 +18,7 @@ use mln_style::layer_properties::LayerProperties;
 use mln_style::source;
 use mln_style_types::SourceType;
 use mln_tile_id::{OverscaledTileID, UnwrappedTileID};
+use mln_util::constants;
 use mln_util::geo::{LatLngBounds, WrapMode};
 use mln_util::immutable::Immutable;
 use mln_util::logging::{Event, Log};
@@ -83,7 +84,11 @@ where
                 return None;
             }
         }
-        let tile = match self.cache.pop(id) {
+        let mut tile = self.cache.pop(id);
+        if tile.is_none() && self.parameters.transform_state.is_globe_rendering() {
+            tile = self.cache.pop_any_wrap(id);
+        }
+        let tile = match tile {
             Some(tile) => tile,
             None => {
                 let tile = (self.create_tile)(id, self.observer.clone())?;
@@ -235,6 +240,8 @@ impl TilePyramid {
             tile_lod_scale: parameters.tile_lod_scale,
             tile_lod_pitch_threshold: parameters.tile_lod_pitch_threshold,
             tile_lod_mode: parameters.tile_lod_mode,
+            requested_zoom: Some(zoom + mln_math::log2(constants::TILE_SIZE_D / f64::from(tile_size))),
+            round_zoom: type_ == SourceType::Raster || type_ == SourceType::RasterDEM || type_ == SourceType::Video,
         };
 
         if overscaled_zoom >= i32::from(zoom_range.min) {
@@ -259,7 +266,12 @@ impl TilePyramid {
                 }
 
                 if pan_zoom < ideal_zoom {
-                    pan_tiles = tile_cover(&tile_cover_parameters, pan_zoom as u8, zoom_range, None);
+                    // The prefetch's level of detail falls off from its own,
+                    // coarser zoom.
+                    let mut pan_parameters = tile_cover_parameters.clone();
+                    pan_parameters.requested_zoom = None;
+                    pan_parameters.round_zoom = false;
+                    pan_tiles = tile_cover(&pan_parameters, pan_zoom as u8, zoom_range, None);
                 }
             }
 
@@ -293,14 +305,23 @@ impl TilePyramid {
         // updateRenderables algorithm. Tiles are created at the ideal tile
         // zoom or at lower zoom levels. Child tiles are used from the cache,
         // but not created.
+        // A cover that picks each tile's zoom by its distance from the camera
+        // asks for tiles finer than the nominal zoom, up to the source's
+        // maximum; the globe cover does, like `TileLodMode::Distance`.
         let mut tile_range: Option<TileRange> = None;
         if let Some(bounds) = &bounds {
-            let max_zoom: i32 = if parameters.tile_lod_mode == TileLodMode::Distance {
+            let variable_zoom = parameters.tile_lod_mode == TileLodMode::Distance
+                || parameters.transform_state.is_globe_rendering();
+            let max_zoom: i32 = if variable_zoom {
                 i32::from(zoom_range.max)
             } else {
                 std::cmp::min(tile_zoom, i32::from(zoom_range.max))
             };
             tile_range = Some(TileRange::from_lat_lng_bounds_range(bounds, zoom_range.min, max_zoom as u8));
+        }
+
+        if parameters.transform_state.is_globe_rendering() {
+            self.move_tiles_to_wanted_wraps(&ideal_tiles, &pan_tiles);
         }
 
         let mut previously_rendered_tiles = std::mem::take(&mut self.rendered_tiles);
@@ -557,6 +578,40 @@ impl TilePyramid {
         self.rendered_tiles
             .get(tile_id)
             .map(|key| self.tiles[key].as_ref())
+    }
+
+    /// On the globe every wrap of a tile is the same piece of the sphere, and
+    /// the cover gives tiles the wraps of the world copy the center has
+    /// reached. A tile the cover now wants under another wrap moves there
+    /// instead of loading again, which would leave its part of the globe bare
+    /// until it did: the whole globe at the zoom-0 tile, which changes wrap
+    /// whenever the center crosses the antimeridian.
+    fn move_tiles_to_wanted_wraps(&mut self, ideal_tiles: &[OverscaledTileID], pan_tiles: &[OverscaledTileID]) {
+        let mut wanted: BTreeSet<OverscaledTileID> = ideal_tiles.iter().copied().collect();
+        wanted.extend(pan_tiles.iter().copied());
+        for id in &wanted {
+            if self.tiles.contains_key(id) {
+                continue;
+            }
+            let Some(loaded) = self
+                .tiles
+                .keys()
+                .find(|key| {
+                    key.overscaled_z == id.overscaled_z && key.canonical == id.canonical && !wanted.contains(key)
+                })
+                .copied()
+            else {
+                continue;
+            };
+            let rendered_id = loaded.to_unwrapped();
+            let tile = self.tiles.remove(&loaded).expect("loaded tile");
+            tile.base().set_id(*id);
+            self.tiles.insert(*id, tile);
+            // `renderedTiles.insert(node)` keeps an entry already at the key.
+            if self.rendered_tiles.remove(&rendered_id).is_some() {
+                self.rendered_tiles.entry(id.to_unwrapped()).or_insert(*id);
+            }
+        }
     }
 
     /// `handleWrapJump(lng)`.

@@ -14,6 +14,7 @@ rust_library(
         "//crates/mln_storage",
         "//crates/mln_style",
         "//crates/mln_style_types",
+        "//crates/mln_tile_id",
         "//crates/mln_util",
         "//vendor/geometry",
     ],

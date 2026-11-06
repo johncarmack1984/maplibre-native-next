@@ -196,6 +196,8 @@ impl RenderSource for RenderImageSource {
                 tile_lod_scale: parameters.tile_lod_scale,
                 tile_lod_pitch_threshold: parameters.tile_lod_pitch_threshold,
                 tile_lod_mode: parameters.tile_lod_mode,
+                requested_zoom: None,
+                round_zoom: false,
             },
             transform_state.get_integer_zoom(),
             zoom_range,

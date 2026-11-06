@@ -75,7 +75,7 @@ fn create_frustum_from_projection_matrix() {
     // C++ ignores the result.
     let _ = matrix::invert(&mut inv_proj_matrix, &proj_matrix);
 
-    let frustum = Frustum::from_inv_proj_matrix(&inv_proj_matrix, 1.0, 0.0, false);
+    let frustum = Frustum::from_inv_proj_matrix(&inv_proj_matrix, 1.0, 0.0, false, None);
 
     let expected_points: [Vec3; 8] = [
         [-0.1, 0.1, -0.1],
@@ -142,7 +142,7 @@ fn create_test_frustum(
     // C++ ignores the result.
     let _ = matrix::invert(&mut inv_proj, &proj);
 
-    Frustum::from_inv_proj_matrix(&inv_proj, 1.0, 0.0, false)
+    Frustum::from_inv_proj_matrix(&inv_proj, 1.0, 0.0, false, None)
 }
 
 // gtest: BoundingVolumes.AabbFullyInsideFrustum

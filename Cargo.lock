@@ -1269,6 +1269,7 @@ dependencies = [
  "mln-rs-storage",
  "mln-rs-style",
  "mln-rs-style-types",
+ "mln-rs-tile-id",
  "mln-rs-util",
  "mln-rs-webgpu",
  "serde_json",
