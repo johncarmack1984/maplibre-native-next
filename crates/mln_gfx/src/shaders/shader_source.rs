@@ -42,4 +42,5 @@ pub enum BuiltIn {
     SymbolSDFShader,
     SymbolTextAndIconShader,
     WideVectorShader,
+    GlobeDepthShader,
 }

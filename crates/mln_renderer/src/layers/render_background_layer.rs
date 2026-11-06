@@ -215,10 +215,12 @@ impl RenderLayer for RenderBackgroundLayer {
         }
 
         if !has_pattern && self.plain_shader.is_none() {
-            self.plain_shader = context.get_generic_shader(shaders, BACKGROUND_PLAIN_SHADER_NAME);
+            self.plain_shader =
+                context.get_generic_shader(shaders, BACKGROUND_PLAIN_SHADER_NAME, self.base.projection_variant);
         }
         if has_pattern && self.pattern_shader.is_none() {
-            self.pattern_shader = context.get_generic_shader(shaders, BACKGROUND_PATTERN_SHADER_NAME);
+            self.pattern_shader =
+                context.get_generic_shader(shaders, BACKGROUND_PATTERN_SHADER_NAME, self.base.projection_variant);
         }
 
         let layer_tweaker = self.base.layer_tweaker.clone().expect("layer tweaker");

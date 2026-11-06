@@ -16,11 +16,11 @@ use mln_gfx::{
     ColorMode, CommandEncoder, Context, DepthMaskType, DepthMode, RendererBackend, ScissorRect, ShaderRegistry,
     StencilMode,
 };
-use mln_map_types::{MapDebugOptions, MapMode, TileLodMode, TransformState, ViewportMode};
+use mln_map_types::{MapDebugOptions, MapMode, ProjectionData, TileLodMode, TransformState, ViewportMode};
 use mln_tile_id::UnwrappedTileID;
 use mln_util::Color;
 use mln_util::chrono::TimePoint;
-use mln_util::mat4::{Mat4, matrix};
+use mln_util::mat4::Mat4;
 use mln_util::size::Size;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -181,15 +181,15 @@ impl<'a> PaintParameters<'a> {
 
     /// `matrixForTile(const UnwrappedTileID&, bool aligned = false)`.
     pub fn matrix_for_tile(&self, tile_id: &UnwrappedTileID, aligned: bool) -> Mat4 {
-        let mut m: Mat4 = [0.0; 16];
-        self.state.matrix_for(&mut m, tile_id);
-        let b = m;
-        matrix::multiply(
-            &mut m,
+        self.projection_data_for_tile(tile_id, aligned).main_matrix
+    }
+
+    /// `projectionDataForTile(const UnwrappedTileID&, bool aligned = false)`.
+    pub fn projection_data_for_tile(&self, tile_id: &UnwrappedTileID, aligned: bool) -> ProjectionData {
+        self.state.get_projection_data_with(
+            tile_id,
             if aligned { &self.transform_params.aligned_proj_matrix } else { &self.transform_params.proj_matrix },
-            &b,
-        );
-        m
+        )
     }
 
     pub fn depth_mode_for_sublayer(&self, _n: u8, mask: DepthMaskType) -> DepthMode {
@@ -225,7 +225,20 @@ impl<'a> PaintParameters<'a> {
         self.next_stencil_id = 1;
         self.tile_clipping_mask_ids.clear();
 
-        // WebGPU clears stencil through render pass descriptor
+        // The render pass clears the stencil only where it begins; within it,
+        // draw zero over the zoom 0 tile, as Metal does.
+        // TODO(port): on the globe, the zoom 0 tile's globe clip mask (globe
+        // phase 6a).
+        let matrix = self.matrix_for_tile(&UnwrappedTileID::new(0, 0, 0), false);
+        let tile_ubo = [ClipUBO {
+            matrix: std::array::from_fn(|i| matrix[i] as f32),
+            stencil_ref: 0,
+            pad1: 0.0,
+            pad2: 0.0,
+            pad3: 0.0,
+        }];
+        let render_pass = self.render_pass.as_deref().expect("render pass");
+        self.context.render_tile_clipping_masks(render_pass, self.shaders, &tile_ubo);
         self.context.rendering_stats().stencil_clears += 1;
     }
 

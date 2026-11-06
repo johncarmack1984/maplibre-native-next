@@ -464,7 +464,12 @@ impl RenderLayer for RenderFillLayer {
 
             if self.unevaluated.get::<FillPattern>().is_undefined() {
                 // Simple fill
-                let fill_shader = fill_shader_group.get_or_create_shader(context, &properties_as_uniforms, "a_pos");
+                let fill_shader = fill_shader_group.get_or_create_shader(
+                    context,
+                    &properties_as_uniforms,
+                    self.base.projection_variant,
+                    "a_pos",
+                );
 
                 let outline_triangulated_shader = if do_outline && !data_driven_outline {
                     let outline_properties_as_uniforms: StringIDSetsPair = (
@@ -477,15 +482,25 @@ impl RenderLayer for RenderFillLayer {
                         .into_iter()
                         .collect(),
                     );
-                    self.outline_triangulated_shader_group
-                        .as_ref()
-                        .and_then(|group| group.get_or_create_shader(context, &outline_properties_as_uniforms, "a_pos"))
+                    self.outline_triangulated_shader_group.as_ref().and_then(|group| {
+                        group.get_or_create_shader(
+                            context,
+                            &outline_properties_as_uniforms,
+                            self.base.projection_variant,
+                            "a_pos",
+                        )
+                    })
                 } else {
                     None
                 };
 
                 let outline_shader = if do_outline {
-                    outline_shader_group.get_or_create_shader(context, &properties_as_uniforms, "a_pos")
+                    outline_shader_group.get_or_create_shader(
+                        context,
+                        &properties_as_uniforms,
+                        self.base.projection_variant,
+                        "a_pos",
+                    )
                 } else {
                     None
                 };
@@ -583,9 +598,19 @@ impl RenderLayer for RenderFillLayer {
                     continue;
                 };
 
-                let fill_shader = pattern_shader_group.get_or_create_shader(context, &properties_as_uniforms, "a_pos");
+                let fill_shader = pattern_shader_group.get_or_create_shader(
+                    context,
+                    &properties_as_uniforms,
+                    self.base.projection_variant,
+                    "a_pos",
+                );
                 let outline_shader = if do_outline {
-                    outline_pattern_shader_group.get_or_create_shader(context, &properties_as_uniforms, "a_pos")
+                    outline_pattern_shader_group.get_or_create_shader(
+                        context,
+                        &properties_as_uniforms,
+                        self.base.projection_variant,
+                        "a_pos",
+                    )
                 } else {
                     None
                 };

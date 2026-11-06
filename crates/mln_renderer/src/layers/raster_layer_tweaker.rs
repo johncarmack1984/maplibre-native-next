@@ -3,15 +3,20 @@
 // branches: the port's backend is WebGPU).
 
 use super::{cast_matrix, check_tweak_drawable_ptr};
-use crate::layer_tweaker::{LayerTweaker, LayerTweakerBase, get_tile_matrix, multiply_with_projection_matrix};
+use crate::layer_tweaker::{
+    LayerTweaker, LayerTweakerBase, get_projection_data, multiply_with_projection_matrix, to_projection_ubo,
+};
 use crate::paint_parameters::PaintParameters;
 use mln_gfx::renderer::layer_group::visit_layer_group_drawables;
+use mln_gfx::shaders::layer_ubo::ProjectionUBO;
 use mln_gfx::shaders::raster_layer_ubo::{RasterDrawableUBO, RasterEvaluatedPropsUBO};
 use mln_gfx::shaders::shader_defines::{ID_RASTER_DRAWABLE_UBO, ID_RASTER_EVALUATED_PROPS_UBO};
 use mln_gfx::{LayerGroupBase, UniformBufferPtr};
+use mln_map_types::ProjectionData;
 use mln_style::layer_properties::{LayerProperties, get_evaluated};
 use mln_style::layers::raster_layer_properties::*;
 use mln_style_types::TranslateAnchorType;
+use mln_tile_id::UnwrappedTileID;
 use mln_util::immutable::Immutable;
 use mln_util::logging::{Event, Log};
 use mln_util::mat4::Mat4;
@@ -96,6 +101,7 @@ impl LayerTweaker for RasterLayerTweaker {
 
         let mut i: u32 = 0;
         let mut drawable_ubo_vector = vec![RasterDrawableUBO::default(); layer_group.get_drawable_count()];
+        let mut projection_ubo_vector = vec![ProjectionUBO::default(); layer_group.get_drawable_count()];
 
         let self_ptr: *const Self = self;
         visit_layer_group_drawables(layer_group, |drawable| {
@@ -103,7 +109,7 @@ impl LayerTweaker for RasterLayerTweaker {
                 return;
             }
 
-            let matrix: Mat4 = match drawable.get_tile_id() {
+            let projection: ProjectionData = match drawable.get_tile_id() {
                 None => {
                     // this is an image drawable
                     let Some(image_data) = drawable.get_data().and_then(|d| d.downcast_ref::<ImageDrawableData>())
@@ -114,9 +120,9 @@ impl LayerTweaker for RasterLayerTweaker {
                         );
                         return;
                     };
-                    let mut matrix = image_data.matrix;
+                    let mut image_matrix = image_data.matrix;
                     multiply_with_projection_matrix(
-                        /*in-out*/ &mut matrix,
+                        /*in-out*/ &mut image_matrix,
                         parameters.transform_params,
                         parameters.current_layer,
                         drawable.get_is_3d(),
@@ -125,12 +131,16 @@ impl LayerTweaker for RasterLayerTweaker {
                         /*near_clipped*/ false,
                         /*aligned*/ true,
                     );
-                    matrix
+                    // TODO(port): globe phase 12b draws an image source by
+                    // its own quad, as a tile drawable; until then it keeps
+                    // its own matrix, with the Mercator projection block of
+                    // tile 0/0/0.
+                    parameters.state.get_projection_data_for_matrix(&UnwrappedTileID::new(0, 0, 0), &image_matrix)
                 }
                 Some(tile_id) => {
                     // this is a tile drawable
                     let tile_id = tile_id.to_unwrapped();
-                    get_tile_matrix(
+                    get_projection_data(
                         &tile_id,
                         parameters,
                         &[0.0, 0.0],
@@ -142,6 +152,9 @@ impl LayerTweaker for RasterLayerTweaker {
                     )
                 }
             };
+
+            let matrix = projection.fallback_matrix;
+            projection_ubo_vector[i as usize] = to_projection_ubo(&projection);
 
             drawable_ubo_vector[i as usize] = RasterDrawableUBO { matrix: cast_matrix(&matrix) };
             drawable.set_ubo_index(i);
@@ -157,5 +170,6 @@ impl LayerTweaker for RasterLayerTweaker {
         }
 
         layer_group.mutable_uniform_buffers().set(ID_RASTER_DRAWABLE_UBO, self.drawable_uniform_buffer.clone());
+        self.base.upload_projection_ubos(layer_group.mutable_uniform_buffers(), &projection_ubo_vector, context);
     }
 }
