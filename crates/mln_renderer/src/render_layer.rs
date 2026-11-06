@@ -26,7 +26,7 @@ use mln_style::layer;
 use mln_style::layer::layer_type_info;
 use mln_style::layer_properties::LayerProperties;
 use mln_style::{PropertyEvaluationParameters, TransitionParameters};
-use mln_style_types::VisibilityType;
+use mln_style_types::{TranslateAnchorType, VisibilityType};
 use mln_tile_id::OverscaledTileID;
 use mln_util::Color;
 use mln_util::identity::SimpleIdentity;
@@ -49,6 +49,20 @@ pub struct LayerRenderData {
 // symbols: `BucketPlacementData`. C++ holds `reference_wrapper`s to the
 // bucket and the render tile; here the bucket is shared and the tile is
 // kept alive by the vector that owns it.
+/// A symbol layer's `*-translate` in pixels, carried into placement the way
+/// GL JS passes `translation`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SymbolTranslate {
+    pub offset: [f32; 2],
+    pub anchor: TranslateAnchorType,
+}
+
+impl Default for SymbolTranslate {
+    fn default() -> Self {
+        SymbolTranslate { offset: [0.0, 0.0], anchor: TranslateAnchorType::Map }
+    }
+}
+
 /// `BucketPlacementData`.
 #[derive(Clone)]
 pub struct BucketPlacementData {
@@ -59,6 +73,8 @@ pub struct BucketPlacementData {
     pub feature_index: Option<Arc<crate::geometry::feature_index::FeatureIndex>>,
     pub source_id: String,
     pub sort_key_range: Option<crate::buckets::symbol_bucket::SortKeyRange>,
+    pub text_translate: SymbolTranslate,
+    pub icon_translate: SymbolTranslate,
 }
 
 impl BucketPlacementData {
@@ -113,6 +129,8 @@ pub struct RenderLayerBase {
     pub render_tile_ids: HashMap<OverscaledTileID, SimpleIdentity>,
     // symbols: `placementData`.
     pub placement_data: LayerPlacementData,
+    // symbols: `followerData`.
+    pub follower_data: LayerPlacementData,
     /// The projection variant this layer's drawables are built with.
     pub projection_variant: ProjectionVariant,
     // TODO(port): sourceForState (feature state), hasRenderFailures.
@@ -136,6 +154,7 @@ impl RenderLayerBase {
             render_tiles_owner: Rc::new(Vec::new()),
             render_tile_ids: HashMap::new(),
             placement_data: Vec::new(), // symbols
+            follower_data: Vec::new(),  // symbols
             projection_variant: ProjectionVariant::Mercator,
         }
     }
@@ -366,6 +385,12 @@ pub trait RenderLayer {
     // symbols: `getPlacementData()`.
     fn get_placement_data(&self) -> &LayerPlacementData {
         &self.base().placement_data
+    }
+
+    /// symbols: `getFollowerData()`: buckets that another layer places and
+    /// this layer draws, at its own translation.
+    fn get_follower_data(&self) -> &LayerPlacementData {
+        &self.base().follower_data
     }
 
     fn get_layer_index(&self) -> i32 {

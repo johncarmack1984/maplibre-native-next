@@ -13,7 +13,7 @@ use crate::tile::tile::Tile;
 use crate::tile_render_data::{TileAtlasTextures, TileRenderData};
 use geometry::Point;
 use mln_gfx::UploadPass;
-use mln_map_types::{MapDebugOptions, TransformState};
+use mln_map_types::{MapDebugOptions, ProjectionData, TransformState};
 use mln_style::layer;
 use mln_style_types::TranslateAnchorType;
 use mln_style_types::image::ImagePosition;
@@ -33,6 +33,8 @@ fn rotate(a: Point<f32>, angle: f32) -> Point<f32> {
 /// `RenderTile`.
 pub struct RenderTile {
     pub id: UnwrappedTileID,
+    /// The projection contract for this tile; `matrix` is its main matrix.
+    pub projection: ProjectionData,
     pub matrix: Mat4,
     pub near_clipped_matrix: Mat4,
     /// layers: debug
@@ -52,6 +54,7 @@ impl RenderTile {
     pub fn new(id: UnwrappedTileID, tile: &dyn Tile) -> Self {
         RenderTile {
             id,
+            projection: ProjectionData::default(),
             // C++ default-constructs `mat4` (uninitialized); prepare sets it.
             matrix: [0.0; 16],
             near_clipped_matrix: [0.0; 16],
@@ -225,7 +228,8 @@ impl RenderTile {
         // matrix; nearClippedMatrix has near plane moved further, to enhance
         // depth buffer precision
         let transform = parameters.transform;
-        self.matrix = transform.state.get_projection_data_with(&self.id, &transform.proj_matrix).main_matrix;
+        self.projection = transform.state.get_projection_data_with(&self.id, &transform.proj_matrix);
+        self.matrix = self.projection.main_matrix;
         self.near_clipped_matrix = if transform.state.is_globe_rendering() {
             self.matrix
         } else {
