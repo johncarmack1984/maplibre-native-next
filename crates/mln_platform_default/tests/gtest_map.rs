@@ -11,7 +11,7 @@ mod gtest_prefetch;
 mod support;
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
@@ -23,6 +23,8 @@ use mln_map::{
     AnimationOptions, BoundOptions, CameraOptions, ConstrainMode, Map, MapMode, MapOptions, MapProjection,
     NorthOrientation, ProjectionMode, RenderMode, TileLodMode, ViewportMode,
 };
+use mln_platform_default::HeadlessFrontend;
+use mln_renderer::tile::tile::TileOperation;
 use mln_renderer::{RendererFrontend, RendererObserver, UpdateParameters};
 use mln_storage::network_status::{NetworkStatus, Status as NetworkStatusType};
 use mln_storage::response::{Error as ResponseError, Reason};
@@ -44,6 +46,7 @@ use mln_style::sources::tile_source::{UrlOrTileset, VectorSource};
 use mln_style::style_property::Kind as StylePropertyKind;
 use mln_style::{PropertyValue, TransitionOptions};
 use mln_style_types::{ProjectionDefinition, ProjectionType};
+use mln_tile_id::OverscaledTileID;
 use mln_util::Color;
 use mln_util::chrono::{Duration, Timestamp};
 use mln_util::geo::{EdgeInsets, LatLng, LatLngBounds, ScreenCoordinate, WrapMode};
@@ -1447,6 +1450,36 @@ fn prefetch_delta_override() {
     // to the default requests 4 parent tiles per source.
 }
 
+// gtest: Map.GlobePrefetchRequestsCoarserTiles
+#[test]
+fn globe_prefetch_requests_coarser_tiles() {
+    let test = MapTest::with_mode(1.0, MapMode::Continuous);
+    test.load_json(
+        r#"{"version": 8, "projection": {"type": "vertical-perspective"}, "sources": {},
+                 "layers": [{"id": "vector", "type": "fill", "source": "vector"}]}"#,
+    );
+    test.map().get_style_mut().add_source(Box::new(vector_source("vector", "a/{z}/{x}/{y}"))).unwrap();
+
+    // C++ guards `zooms` with a mutex; the stub file source answers on this thread.
+    let zooms: Rc<RefCell<BTreeSet<i32>>> = Rc::new(RefCell::new(BTreeSet::new()));
+    {
+        let zooms = zooms.clone();
+        test.file_source.set_response(Kind::Tile, move |resource: &Resource| {
+            if let Some(tile_data) = &resource.tile_data {
+                zooms.borrow_mut().insert(i32::from(tile_data.z));
+            }
+            no_content()
+        });
+    }
+    test.map().jump_to(&cam().with_center(Some(ll(40.0, 10.0))).with_zoom(Some(8.0)));
+    let run_loop = test.run_loop.clone();
+    test.observer.did_finish_loading_map_callback.set(move |_| run_loop.stop());
+    run_with_timeout(&test.run_loop, 60);
+
+    assert!(zooms.borrow().contains(&4));
+    assert!(zooms.borrow().contains(&8));
+}
+
 // Test that custom source's tile pyramid is reset
 // if there is a significant change.
 // gtest: Map.PrefetchDeltaOverrideCustomSource
@@ -1852,7 +1885,7 @@ fn invalid_utf8_in_tile() {
 
 // gtest: Map.ObserveTileLifecycle
 #[test]
-#[ignore = "TODO(port): MapObserver::onTileAction and onPre/PostCompileShader (TileOperation), and AssetFileSource for the asset:// style; see map.test.cpp:2040"]
+#[ignore = "TODO(port): MapObserver::onPre/PostCompileShader, and AssetFileSource for the asset:// style; see map.test.cpp:2040"]
 fn observe_tile_lifecycle() {
     // test/map/map.test.cpp:2040: checks the order of the tile operations
     // (RequestedFromCache/Network, LoadFromCache/Network, StartParse,
@@ -1957,6 +1990,56 @@ fn style_update_zoom_dependency() {
     check_image("test/fixtures/map/style_update_zoom_dependency/after_update_green", &test.render().image, 0.0006, 0.1);
 }
 
+// gtest: Map.GlobeKeepsItsTilesAcrossTheAntimeridian
+#[test]
+fn globe_keeps_its_tiles_across_the_antimeridian() {
+    // The globe's zoom-0 tile takes the wrap of the world copy the center is in, so it changes wrap whenever the
+    // center crosses the antimeridian. It is the same piece of the sphere in either, and must not be parsed again.
+    let test = MapTest::new();
+    test.frontend.clone().set_size(Size::new(512, 512));
+    test.map().set_size(Size::new(512, 512)).unwrap();
+    test.load_json(
+        r#"{"version": 8, "projection": {"type": "globe"},
+                 "sources": {"ocean": {"type": "vector", "tiles": ["a/{z}/{x}/{y}"]}},
+                 "layers": [{"id": "ocean", "type": "fill", "source": "ocean", "source-layer": "water",
+                             "paint": {"fill-color": "blue"}}]}"#,
+    );
+    let ocean = Arc::new(read_bytes("test/fixtures/map/globe_tile_masks/ocean.mvt"));
+    test.file_source.set_response(Kind::Tile, move |_: &Resource| {
+        let mut response = Response::new();
+        response.data = Some(ocean.clone());
+        Some(response)
+    });
+    // C++ guards `parsed` with a mutex; the observer is called on this thread.
+    let parsed: Rc<RefCell<Vec<OverscaledTileID>>> = Rc::new(RefCell::new(Vec::new()));
+    {
+        let parsed = parsed.clone();
+        test.observer.on_tile_action_callback.set(move |(op, id, _)| {
+            if op == TileOperation::StartParse {
+                parsed.borrow_mut().push(id);
+            }
+        });
+    }
+
+    test.map().jump_to(&cam().with_center(Some(ll(0.0, 179.0))).with_zoom(Some(0.0)));
+    test.render();
+    assert!(test.map().get_transform_state().is_globe_rendering());
+    {
+        let mut parsed = parsed.borrow_mut();
+        assert!(!parsed.is_empty());
+        for id in parsed.iter() {
+            assert_eq!(OverscaledTileID::with_zxy(0, 0, 0, 0, 0), *id);
+        }
+        parsed.clear();
+    }
+
+    test.map().jump_to(&cam().with_center(Some(ll(0.0, 181.0))));
+    test.render();
+    assert_near(181.0, test.map().get_transform_state().get_lat_lng(WrapMode::Unwrapped).longitude(), 1e-9);
+    let parsed = parsed.borrow();
+    assert!(parsed.is_empty(), "{} tiles parsed again, the first {}", parsed.len(), parsed[0]);
+}
+
 // gtest: Map.GlobeSetBoundsKeepsAZoomTheGlobeAllows
 #[test]
 fn globe_set_bounds_keeps_a_zoom_the_globe_allows() {
@@ -2059,6 +2142,64 @@ fn set_bounds_lifts_the_zoom_to_a_minimum_above_the_maximum() {
     test.map().jump_to(&cam().with_zoom(Some(6.0)));
     test.map().set_bounds(&BoundOptions::default().with_min_zoom(10.0).with_max_zoom(16.0)).unwrap();
     assert_near(10.0, test.map().get_camera_options(None).zoom.unwrap(), 1e-9);
+}
+
+// gtest: Map.GlobeBoundedSourceLoadsFinerTiles
+#[test]
+fn globe_bounded_source_loads_finer_tiles() {
+    // Just below an integer zoom the globe cover asks for the next zoom's tiles nearest the camera; a source with
+    // bounds must create them.
+    let _run_loop = RunLoop::new();
+    // C++ guards `parsed` with `tileMutex`; the observer is called on this thread.
+    let parsed: Rc<RefCell<Vec<OverscaledTileID>>> = Rc::new(RefCell::new(Vec::new()));
+    let observer = Rc::new(StubMapObserver::default());
+    {
+        let parsed = parsed.clone();
+        observer.on_tile_action_callback.set(move |(op, id, source_id)| {
+            if source_id != "bounded" || op != TileOperation::StartParse {
+                return;
+            }
+            parsed.borrow_mut().push(id);
+        });
+    }
+
+    let mut frontend = HeadlessFrontend::new(Size::new(512, 512), 1.0);
+    // C++ runs from the checkout's root; the asset path is relative to it.
+    let asset_path = cpp_root().join("test/fixtures/api/assets");
+    let mut map = Map::with_file_source(
+        &frontend,
+        observer.clone(),
+        Arc::new(MainResourceLoader::new(
+            &ResourceOptions::default()
+                .with_cache_path(":memory:")
+                .with_asset_path(asset_path.to_str().expect("asset path")),
+            &ClientOptions::default(),
+        )),
+        MapOptions::new().with_map_mode(MapMode::Static).with_size(frontend.get_size()),
+    );
+
+    // The same tile answers every request, so the cover alone decides what loads.
+    map.get_style_mut().load_json(
+        r#"{
+        "version": 8,
+        "projection": {"type": "globe"},
+        "sources": {
+            "bounded": {
+                "type": "vector",
+                "maxzoom": 15,
+                "bounds": [-180, -85.0511, 180, 85.0511],
+                "tiles": ["asset://streets/10-163-395.vector.pbf"]
+            }
+        },
+        "layers": [{"id": "water", "type": "fill", "source": "bounded", "source-layer": "water"}]
+    }"#,
+    );
+    map.jump_to(&cam().with_center(Some(ll(37.8, -122.5))).with_zoom(Some(10.95)));
+    frontend.render(&mut map).unwrap_or_else(|e| panic!("render: {e}"));
+    assert!(map.get_transform_state().is_globe_rendering());
+
+    let parsed = parsed.borrow();
+    assert!(parsed.iter().any(|id| id.canonical.z == 11), "{} tiles parsed, none at zoom 11", parsed.len());
 }
 
 // gtest: Map.LineLayerDepthDistribution

@@ -162,6 +162,8 @@ impl RenderLayer for RenderBackgroundLayer {
                 tile_lod_scale: update_parameters.tile_lod_scale,
                 tile_lod_pitch_threshold: update_parameters.tile_lod_pitch_threshold,
                 tile_lod_mode: update_parameters.tile_lod_mode,
+                requested_zoom: None,
+                round_zoom: false,
             },
             zoom,
             zoom_range,

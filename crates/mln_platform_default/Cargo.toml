@@ -57,6 +57,7 @@ mln_platform_default_image = { package = "mln-rs-platform-default-image", path =
 mln_storage = { package = "mln-rs-storage", path = "../mln_storage" }
 mln_style = { package = "mln-rs-style", path = "../mln_style" }
 mln_style_types = { package = "mln-rs-style-types", path = "../mln_style_types" }
+mln_tile_id = { package = "mln-rs-tile-id", path = "../mln_tile_id" }
 pixelmatch = { package = "mln-rs-pixelmatch", path = "../../vendor/pixelmatch" }
 serde_json.workspace = true
 
