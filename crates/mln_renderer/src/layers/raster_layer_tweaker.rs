@@ -3,29 +3,17 @@
 // branches: the port's backend is WebGPU).
 
 use super::{cast_matrix, check_tweak_drawable_ptr};
-use crate::layer_tweaker::{
-    LayerTweaker, LayerTweakerBase, get_projection_data, multiply_with_projection_matrix, to_projection_ubo,
-};
+use crate::layer_tweaker::{LayerTweaker, LayerTweakerBase, get_projection_data, to_projection_ubo};
 use crate::paint_parameters::PaintParameters;
 use mln_gfx::renderer::layer_group::visit_layer_group_drawables;
 use mln_gfx::shaders::layer_ubo::ProjectionUBO;
 use mln_gfx::shaders::raster_layer_ubo::{RasterDrawableUBO, RasterEvaluatedPropsUBO};
 use mln_gfx::shaders::shader_defines::{ID_RASTER_DRAWABLE_UBO, ID_RASTER_EVALUATED_PROPS_UBO};
 use mln_gfx::{LayerGroupBase, UniformBufferPtr};
-use mln_map_types::ProjectionData;
 use mln_style::layer_properties::{LayerProperties, get_evaluated};
 use mln_style::layers::raster_layer_properties::*;
 use mln_style_types::TranslateAnchorType;
-use mln_tile_id::UnwrappedTileID;
 use mln_util::immutable::Immutable;
-use mln_util::logging::{Event, Log};
-use mln_util::mat4::Mat4;
-
-/// `gfx::ImageDrawableData`: the matrix of an image-source drawable
-/// (include/mln/gfx/image_drawable_data.hpp).
-pub struct ImageDrawableData {
-    pub matrix: Mat4,
-}
 
 pub struct RasterLayerTweaker {
     base: LayerTweakerBase,
@@ -105,53 +93,24 @@ impl LayerTweaker for RasterLayerTweaker {
 
         let self_ptr: *const Self = self;
         visit_layer_group_drawables(layer_group, |drawable| {
+            let Some(tile_id) = drawable.get_tile_id() else {
+                return;
+            };
             if !check_tweak_drawable_ptr(drawable, self_ptr) {
                 return;
             }
 
-            let projection: ProjectionData = match drawable.get_tile_id() {
-                None => {
-                    // this is an image drawable
-                    let Some(image_data) = drawable.get_data().and_then(|d| d.downcast_ref::<ImageDrawableData>())
-                    else {
-                        Log::error(
-                            Event::General,
-                            "Invalid raster layer drawable: neither tile id nor image data is set.",
-                        );
-                        return;
-                    };
-                    let mut image_matrix = image_data.matrix;
-                    multiply_with_projection_matrix(
-                        /*in-out*/ &mut image_matrix,
-                        parameters.transform_params,
-                        parameters.current_layer,
-                        drawable.get_is_3d(),
-                        drawable.get_enable_depth(),
-                        drawable.get_sub_layer_index(),
-                        /*near_clipped*/ false,
-                        /*aligned*/ true,
-                    );
-                    // TODO(port): globe phase 12b draws an image source by
-                    // its own quad, as a tile drawable; until then it keeps
-                    // its own matrix, with the Mercator projection block of
-                    // tile 0/0/0.
-                    parameters.state.get_projection_data_for_matrix(&UnwrappedTileID::new(0, 0, 0), &image_matrix)
-                }
-                Some(tile_id) => {
-                    // this is a tile drawable
-                    let tile_id = tile_id.to_unwrapped();
-                    get_projection_data(
-                        &tile_id,
-                        parameters,
-                        &[0.0, 0.0],
-                        TranslateAnchorType::Viewport,
-                        false,
-                        false,
-                        drawable,
-                        !parameters.state.is_changing(),
-                    )
-                }
-            };
+            let tile_id = tile_id.to_unwrapped();
+            let projection = get_projection_data(
+                &tile_id,
+                parameters,
+                &[0.0, 0.0],
+                TranslateAnchorType::Viewport,
+                false,
+                false,
+                drawable,
+                !parameters.state.is_changing(),
+            );
 
             let matrix = projection.fallback_matrix;
             projection_ubo_vector[i as usize] = to_projection_ubo(&projection);

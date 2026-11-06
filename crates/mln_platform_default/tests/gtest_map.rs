@@ -1244,6 +1244,28 @@ fn issue15216() {
     test.run_loop.run_once();
 }
 
+// gtest: Map.GlobeImageSourceBelowZoomZero
+#[test]
+fn globe_image_source_below_zoom_zero() {
+    // An image source asked for its tile cover at zoom -1.5 on the globe; the
+    // zoom was cast to an unsigned tile zoom and the render never returned.
+    let test = MapTest::new();
+    test.load_json(&read_file("test/fixtures/api/empty.json"));
+    test.map()
+        .get_style_mut()
+        .get_projection_mut()
+        .set_type(PropertyValue::Constant(ProjectionDefinition::from_name("vertical-perspective")));
+    let coords = [ll(60.0, -10.0), ll(60.0, 10.0), ll(50.0, 10.0), ll(50.0, -10.0)];
+    let source = ImageSource::new("image", coords);
+    source.set_image(decode_image("test/fixtures/image/no_profile.png"));
+    test.map().get_style_mut().add_source(Box::new(source)).unwrap();
+    test.map().get_style_mut().add_layer(Box::new(RasterLayer::new("raster", "image")), None).unwrap();
+    test.map().jump_to(&cam().with_center(Some(ll(80.0, 0.0))).with_zoom(Some(-1.5)));
+    assert_near(-1.5, test.map().get_camera_options(None).zoom.unwrap(), 1e-9);
+    let image = test.render().image;
+    assert_eq!(test.frontend.get_size().width, image.size.width);
+}
+
 // https://github.com/maplibre/maplibre-native/pull/4753
 // An image source wholly beyond the latitudes Web Mercator can show has an
 // empty tile cover, which used to crash RenderImageSource::update.

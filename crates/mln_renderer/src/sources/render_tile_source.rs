@@ -20,12 +20,14 @@ use crate::layer_tweaker::{LayerTweaker, LayerTweakerBase, get_projection_data, 
 use crate::layers::cast_matrix;
 use crate::paint_parameters::PaintParameters;
 use crate::render_pass::RenderPass;
+use crate::render_static_data::RenderStaticData;
 use crate::render_tree::{DebugLayerGroupMap, DebugLayerTweakers, DebugType};
 use crate::tile::tile::Tile;
 use crate::tile_pyramid::TilePyramid;
 use geometry::Point;
 use mln_actor::TaggedScheduler;
 use mln_gfx::UploadPass;
+use mln_gfx::drawable::Drawable;
 use mln_gfx::polyline_generator::PolylineGeneratorOptions;
 use mln_gfx::renderer::layer_group::visit_layer_group_drawables;
 use mln_gfx::shader_group::StringIDSetsPair;
@@ -54,8 +56,9 @@ use mln_util::Color;
 use mln_util::constants::EXTENT;
 use mln_util::geometry::FeatureType;
 use mln_util::immutable::Immutable;
+use mln_util::subdivision_granularity::SubdivisionGranularitySetting;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::rc::Rc;
 use std::rc::Weak;
 use std::sync::Arc;
@@ -111,11 +114,11 @@ impl RenderItem for TileSourceRenderItem {
 
         // initialize debug builder
         const DEBUG_SHADER_NAME: &str = "DebugShader";
-        // TODO(port): the globe variant while the globe renders (globe phase
-        // 9h), here and for the polylines.
-        if context.get_generic_shader(shaders, DEBUG_SHADER_NAME, ProjectionVariant::Mercator).is_none() {
+        let globe = parameters.state.is_globe_rendering();
+        let projection_variant = if globe { ProjectionVariant::Globe } else { ProjectionVariant::Mercator };
+        let Some(debug_shader) = context.get_generic_shader(shaders, DEBUG_SHADER_NAME, projection_variant) else {
             return;
-        }
+        };
 
         let drawable_name = format!("debug-{}", self.name);
         // TODO(port): the DebugShader builder ("debug-builder") of the
@@ -141,7 +144,7 @@ impl RenderItem for TileSourceRenderItem {
                 .into_iter()
                 .collect(),
             );
-            shader_group.get_or_create_shader(context, &properties_as_uniforms, ProjectionVariant::Mercator, "a_pos")
+            shader_group.get_or_create_shader(context, &properties_as_uniforms, projection_variant, "a_pos")
         };
 
         let mut polyline_builder: Option<UniqueDrawableBuilder> = None;
@@ -178,6 +181,70 @@ impl RenderItem for TileSourceRenderItem {
         // TODO(port): the overlay texture and updateDrawables/addDrawable of
         // the DebugShader drawables.
 
+        // a drawable built for the other projection keeps its shader; it goes
+        // with the tiles that left
+        let stale_with = |drawable: &dyn Drawable, shader: &Option<ShaderProgramBasePtr>| -> bool {
+            let same_shader = match (drawable.get_shader(), shader) {
+                (Some(a), Some(b)) => std::ptr::addr_eq(Rc::as_ptr(a), Rc::as_ptr(b)),
+                (None, None) => true,
+                _ => false,
+            };
+            drawable.get_name() == drawable_name
+                && (!drawable.get_tile_id().is_some_and(|id| new_tiles.contains(&id)) || !same_shader)
+        };
+
+        // The tile border as the polylines draw it: the positions in index
+        // order. (C++'s `Border` also keeps the segments, for the DebugShader
+        // line strips.)
+        struct Border {
+            vertices: Vec<[i16; 2]>,
+            indexes: Vec<u16>,
+        }
+        let tile_border = Border {
+            vertices: RenderStaticData::tile_vertices(),
+            indexes: RenderStaticData::tile_line_strip_indices(),
+        };
+        // On the globe the edges bend with the sphere: a ring at the tile
+        // mesh's granularity, one per zoom.
+        let mut globe_borders: BTreeMap<u8, Border> = BTreeMap::new();
+        let mut border_coordinates_for = |tile_id: &OverscaledTileID| -> GeometryCoordinates {
+            let border = if !globe {
+                &tile_border
+            } else {
+                let z = tile_id.canonical.z;
+                globe_borders.entry(z).or_insert_with(|| {
+                    let steps = SubdivisionGranularitySetting::globe().tile.get_granularity_for_zoom_level(z) as i32;
+                    let mut ring = Border { vertices: Vec::new(), indexes: Vec::new() };
+                    let mut add = |x: i32, y: i32| {
+                        ring.indexes.push(ring.vertices.len() as u16);
+                        ring.vertices.push([x as i16, y as i16]);
+                    };
+                    for i in 0..steps {
+                        add(EXTENT * i / steps, 0);
+                    }
+                    for i in 0..steps {
+                        add(EXTENT, EXTENT * i / steps);
+                    }
+                    for i in 0..steps {
+                        add(EXTENT - EXTENT * i / steps, EXTENT);
+                    }
+                    for i in 0..steps {
+                        add(0, EXTENT - EXTENT * i / steps);
+                    }
+                    ring.indexes.push(0);
+                    ring
+                })
+            };
+            border
+                .indexes
+                .iter()
+                .map(|&index| {
+                    let position = border.vertices[usize::from(index)];
+                    Point::new(position[0], position[1])
+                })
+                .collect()
+        };
+
         let line_properties_ubo = LineEvaluatedPropsUBO {
             color: Color::red().to_float_array(),
             blur: 0.0,
@@ -200,10 +267,7 @@ impl RenderItem for TileSourceRenderItem {
                 // erase drawables that are not in the current tile set
                 let mut group = layer_group.borrow_mut();
                 if let Some(tile_layer_group) = group.as_tile_layer_group_mut() {
-                    tile_layer_group.remove_drawables_if(|drawable| {
-                        drawable.get_name() == drawable_name
-                            && !drawable.get_tile_id().is_some_and(|id| new_tiles.contains(&id))
-                    });
+                    tile_layer_group.remove_drawables_if(|drawable| stale_with(drawable, &Some(debug_shader.clone())));
                 }
             }
             // TODO(port): add new text drawables and update existing ones
@@ -227,10 +291,11 @@ impl RenderItem for TileSourceRenderItem {
                 let tile_layer_group = group.as_tile_layer_group_mut().expect("debug layer group is a TileLayerGroup");
 
                 // erase drawables that are not in the current tile set
-                tile_layer_group.remove_drawables_if(|drawable| {
-                    drawable.get_name() == drawable_name
-                        && !drawable.get_tile_id().is_some_and(|id| new_tiles.contains(&id))
-                });
+                // MLN_ENABLE_POLYLINE_DRAWABLES
+                if polyline_shader.is_none() {
+                    polyline_shader = create_polyline_shader();
+                }
+                tile_layer_group.remove_drawables_if(|drawable| stale_with(drawable, &polyline_shader));
 
                 // add new drawables and update existing ones
                 for tile in self.render_tiles.iter() {
@@ -243,14 +308,7 @@ impl RenderItem for TileSourceRenderItem {
                     if tile_layer_group.get_drawable_count_for(render_pass, &tile_id) == 0 && tile.get_needs_rendering()
                     {
                         // addPolylineDrawable(tileLayerGroup, tile)
-                        let extent = EXTENT as i16;
-                        let coords: GeometryCoordinates = vec![
-                            Point::new(0, 0),
-                            Point::new(extent, 0),
-                            Point::new(extent, extent),
-                            Point::new(0, extent),
-                            Point::new(0, 0),
-                        ];
+                        let coords = border_coordinates_for(&tile_id);
                         let options = PolylineGeneratorOptions { type_: FeatureType::Polygon, ..Default::default() };
 
                         if polyline_shader.is_none() {
