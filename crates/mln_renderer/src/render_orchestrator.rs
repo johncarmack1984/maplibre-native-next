@@ -239,6 +239,8 @@ pub struct RenderOrchestrator {
     render_targets: Vec<crate::render_target::RenderTargetPtr>,
 
     pending_changes: UniqueChangeRequestVec,
+
+    globe_depth_pass: crate::globe_depth_pass::GlobeDepthPass,
 }
 
 impl RenderOrchestrator {
@@ -285,6 +287,7 @@ impl RenderOrchestrator {
             global_state: None,
             layer_groups_by_layer_index: BTreeMap::new(),
             layer_group_tweakers: HashMap::new(),
+            globe_depth_pass: crate::globe_depth_pass::GlobeDepthPass::default(),
             debug_layer_groups: BTreeMap::new(), // layers: debug
             render_targets: Vec::new(), // dem-heatmap
             pending_changes: Vec::new(),
@@ -1067,6 +1070,7 @@ impl RenderOrchestrator {
 
         let mut changes: UniqueChangeRequestVec = Vec::with_capacity(items.len() * 3);
 
+        let mut has_3d = false;
         for item in items.values() {
             let mut render_layer = item.layer.borrow_mut();
             // C++ catches exceptions from update() and reports them through
@@ -1080,11 +1084,19 @@ impl RenderOrchestrator {
                 render_tree,
                 &mut changes,
             );
+            has_3d = has_3d || render_layer.needs_globe_depth();
 
             // TODO(port): accumulate renderLayer.stats.renderedFeatures
             // (rendered-feature capture).
         }
         self.add_changes(&mut changes);
+
+        self.globe_depth_pass.update(shaders, context, state, update_parameters, has_3d);
+    }
+
+    /// `getGlobeDepthLayerGroup()`.
+    pub fn get_globe_depth_layer_group(&self) -> Option<LayerGroupBasePtr> {
+        self.globe_depth_pass.get_layer_group().cloned()
     }
 
     pub fn process_changes(&mut self) {
