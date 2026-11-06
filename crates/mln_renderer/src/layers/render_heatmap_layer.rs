@@ -303,6 +303,7 @@ impl RenderLayer for RenderHeatmapLayer {
         _render_tree: &RenderTree,
         changes: &mut UniqueChangeRequestVec,
     ) {
+        self.update_projection_variant(state);
         let Some(render_tiles) = self.base.render_tiles.clone().filter(|t| !t.is_empty()) else {
             self.remove_all_drawables();
             return;
