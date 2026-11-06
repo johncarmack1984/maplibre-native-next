@@ -13,6 +13,9 @@ coverage_lcov := 'target/llvm-cov/lcov.info'
 # generate-* and the analysis recipes).
 cpp := justfile_directory() / '..' / 'maplibre-native'
 
+# The Cargo profile `just glfw` builds the app with, e.g. `just profile=release glfw`
+profile := 'dev'
+
 # On NixOS, the tests and the apps build and run inside the C++ repo's #linux dev shell, which has the libraries they link
 # and load (GLFW, the Vulkan loader, ...). Elsewhere (macOS, CI) the system's libraries are the environment.
 nixos := path_exists('/etc/NIXOS')
@@ -121,10 +124,11 @@ get-crate-field field package=main_crate:  (assert-cmd 'jq')
 # Get the minimum supported Rust version (MSRV) for the crate
 get-msrv package=main_crate:  (get-crate-field 'rust_version' package)
 
-# Run the GLFW app: OpenFreeMap Liberty in a window (needs a display and the system GLFW). Arguments go to the app
+# It builds with the Cargo profile in `profile`: `just profile=release glfw` runs an optimized build.
+[doc('Run the GLFW app: OpenFreeMap Liberty in a window (needs a display and the system GLFW). Arguments go to the app')]
 [positional-arguments]
 glfw *args:  _dev-shell
-    {{dev_shell}} cargo run -p mln-rs-glfw --bin mln-glfw -- "$@"
+    {{dev_shell}} cargo run --profile {{profile}} -p mln-rs-glfw --bin mln-glfw -- "$@"
 
 # Report which C++ gtests have Rust ports (`// gtest: Group.Name` markers), e.g. `just gtest-parity --missing util`
 [positional-arguments]
