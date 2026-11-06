@@ -22,8 +22,6 @@
   "render-tests/fill-pattern/wrapping-with-interpolation": "TODO(port): beyond M1",
   "render-tests/icon-text-fit/textFit-grid-long": "C++ Vulkan fails it too (metrics/ignores/platform-linux-vulkan.json, windows-vulkan.json): the stretched box's half-pixel edges rasterize differently per backend (GL/Metal/iOS/Android-Vulkan baselines all differ in that cell; ours has the iOS box height)",
   "render-tests/projection/globe/debug-tile-borders": "TODO(port): the globe",
-  "render-tests/projection/globe/fill-extrusion": "TODO(port): the globe",
-  "render-tests/projection/globe/fill-extrusion-translate": "TODO(port): the globe",
   "render-tests/projection/globe/icon-text-translate-map": "TODO(port): the globe",
   "render-tests/projection/globe/icon-text-translate-viewport": "TODO(port): the globe",
   "render-tests/projection/globe/image": "TODO(port): the globe",

@@ -13,6 +13,7 @@ mod support;
 use geojson::{Feature, GeoJSON, Geometry, Point};
 use feature::Value;
 use mln_actor::{RunLoop, Timer};
+use mln_gfx::shaders::shader_source::BuiltIn;
 use mln_gfx::{BackendScope, ScopeType};
 use mln_map::{
     AnimationOptions, BoundOptions, CameraOptions, ConstrainMode, Map, MapMode, MapOptions, MapProjection,
@@ -1943,6 +1944,12 @@ fn volatile_source() {
 fn observe_shader_registration() {
     // test/map/map.test.cpp:1862: the first render calls onRegisterShaders,
     // the second does not.
+}
+
+// gtest: Map.GlobeDepthShaderIdFollowsTheExistingShaders
+#[test]
+fn globe_depth_shader_id_follows_the_existing_shaders() {
+    assert_eq!(BuiltIn::WideVectorShader as i32 + 1, BuiltIn::GlobeDepthShader as i32);
 }
 
 // gtest: Map.ResourceError

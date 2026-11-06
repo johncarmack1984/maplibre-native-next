@@ -8,6 +8,7 @@ pub mod change_request;
 pub mod format_section_override;
 pub mod geometry;
 pub mod gfx;
+pub mod globe_depth_pass;
 pub mod globe_tile_mesh;
 pub mod group_by_layout;
 pub mod image_manager;
