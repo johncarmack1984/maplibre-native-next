@@ -379,7 +379,7 @@ impl RenderLayer for RenderLineLayer {
         zoom: f32,
         transform_state: &TransformState,
         pixels_to_tile_units: f32,
-        _pos_matrix: &mln_util::mat4::Mat4,
+        _projector: &mln_map_types::TileProjector<'_>,
         feature_state: &mln_style::expression::expression::FeatureState,
     ) -> bool {
         use mln_style::properties::Property;
