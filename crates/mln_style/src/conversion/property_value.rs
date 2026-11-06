@@ -12,7 +12,7 @@ use crate::property_expression::PropertyExpression;
 use crate::property_value::PropertyValue;
 use mln_style_types::{
     AlignmentType, CirclePitchScaleType, HillshadeIlluminationAnchorType, HillshadeMethodType, IconTextFitType,
-    LightAnchorType, LineCapType, LineJoinType, Position, RasterResamplingType, Rotation,
+    LightAnchorType, LineCapType, LineJoinType, Position, ProjectionDefinition, RasterResamplingType, Rotation,
     SymbolAnchorType, SymbolPlacementType, SymbolZOrderType, TextJustifyType, TextTransformType,
     TextWritingModeType, TranslateAnchorType, VariableAnchorOffsetCollection, VisibilityType,
 };
@@ -38,6 +38,7 @@ no_tokens!(
     Color,
     Padding,
     Position,
+    ProjectionDefinition,
     Rotation,
     VariableAnchorOffsetCollection,
     [f32; 2],

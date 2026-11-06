@@ -55,5 +55,6 @@ mln_math = { package = "mln-rs-math", path = "../mln_math" }
 mln_platform_default_image = { package = "mln-rs-platform-default-image", path = "../mln_platform_default_image" }
 mln_storage = { package = "mln-rs-storage", path = "../mln_storage" }
 mln_style = { package = "mln-rs-style", path = "../mln_style" }
+mln_style_types = { package = "mln-rs-style-types", path = "../mln_style_types" }
 pixelmatch = { package = "mln-rs-pixelmatch", path = "../../vendor/pixelmatch" }
 serde_json.workspace = true

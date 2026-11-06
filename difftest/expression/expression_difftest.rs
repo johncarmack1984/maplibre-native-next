@@ -14,6 +14,7 @@ use mln_conversion::Convertible;
 use mln_expression::expression::evaluate_feature;
 use mln_expression::type_::{self, Type};
 use mln_expression::{ParsingContext, Value, is_feature_constant, is_zoom_constant};
+use mln_style_types::projection_type_name;
 use proptest::prelude::*;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -50,18 +51,19 @@ fn encode(t: &Type, out: &mut Vec<u8>) {
         Type::String => out.push(3),
         Type::Color => out.push(4),
         Type::Padding => out.push(5),
-        Type::VariableAnchorOffsetCollection => out.push(6),
-        Type::Object => out.push(7),
-        Type::Value => out.push(8),
+        Type::ProjectionDefinition => out.push(6),
+        Type::VariableAnchorOffsetCollection => out.push(7),
+        Type::Object => out.push(8),
+        Type::Value => out.push(9),
         Type::Array(a) => {
-            out.push(9);
+            out.push(10);
             out.push(a.n.map_or(0xFF, |n| n as u8));
             encode(&a.item_type, out);
         }
-        Type::Collator => out.push(10),
-        Type::Formatted => out.push(11),
-        Type::Error => out.push(12),
-        Type::Image => out.push(13),
+        Type::Collator => out.push(11),
+        Type::Formatted => out.push(12),
+        Type::Error => out.push(13),
+        Type::Image => out.push(14),
     }
 }
 
@@ -153,6 +155,12 @@ fn canon_expr(v: &Value) -> String {
             f32_hex(p.right),
             f32_hex(p.bottom),
             f32_hex(p.left)
+        ),
+        Value::ProjectionDefinition(p) => format!(
+            "pd:{},{},{:016x}",
+            projection_type_name(p.from),
+            projection_type_name(p.to),
+            p.transition.to_bits()
         ),
         Value::Array(a) => format!("[{}]", a.iter().map(canon_expr).collect::<Vec<_>>().join(",")),
         Value::Object(o) => format!(

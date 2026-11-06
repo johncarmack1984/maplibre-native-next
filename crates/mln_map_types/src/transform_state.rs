@@ -11,7 +11,9 @@
 // with the same message.
 
 use crate::camera::{CameraOptions, FreeCameraOptions};
+use crate::mercator_projection::MercatorProjection;
 use crate::mode::{ConstrainMode, ViewportMode};
+use crate::projection_base::{ProjectionBase, ProjectionData};
 use crate::tile_coordinate::TileCoordinate;
 use crate::util_camera::Camera;
 use geometry::Point;
@@ -27,6 +29,7 @@ use mln_util::size::Size;
 use mln_util::vectors::{Vec3, Vec4};
 use std::cell::Cell;
 use std::f64::consts::PI;
+use std::sync::Arc;
 
 use mln_util::constants::{DEFAULT_FOV, DEFAULT_MAX_ZOOM, DEFAULT_PITCH_MAX, M2PI, PITCH_MAX, TILE_SIZE_D};
 pub use mln_util::geo::NorthOrientation;
@@ -214,6 +217,8 @@ pub struct TransformState {
     size: Size,
     frustum_offset: EdgeInsets,
 
+    projection: Arc<dyn ProjectionBase>,
+
     constrain_mode: ConstrainMode,
     viewport_mode: ViewportMode,
 
@@ -270,6 +275,7 @@ impl TransformState {
             orientation: NorthOrientation::Upwards,
             size: Size::default(),
             frustum_offset: EdgeInsets::default(),
+            projection: Arc::new(MercatorProjection),
             constrain_mode,
             viewport_mode,
             rotating: false,
@@ -365,26 +371,29 @@ impl TransformState {
     // MARK: - Matrix
 
     pub fn matrix_for(&self, matrix: &mut Mat4, tile_id: &UnwrappedTileID) {
-        let tile_scale: u64 = 1u64 << tile_id.canonical.z;
-        let s = Projection::world_size(self.scale) / tile_scale as f64;
+        self.projection.tile_matrix(matrix, tile_id, self.scale);
+    }
 
-        matrix::identity(matrix);
-        let a = *matrix;
-        matrix::translate(
-            matrix,
-            &a,
-            (tile_id.canonical.x as i64 + tile_id.wrap as i64 * tile_scale as i64) as f64 * s,
-            (tile_id.canonical.y as i64) as f64 * s,
-            0.0,
-        );
-        let a = *matrix;
-        matrix::scale(
-            matrix,
-            &a,
-            s / constants::EXTENT as f64,
-            s / constants::EXTENT as f64,
-            1.0,
-        );
+    pub fn get_projection(&self) -> &dyn ProjectionBase {
+        self.projection.as_ref()
+    }
+
+    /// `getProjectionData(const UnwrappedTileID&, const mat4& projMatrix)`.
+    pub fn get_projection_data_with(&self, tile_id: &UnwrappedTileID, proj_matrix: &Mat4) -> ProjectionData {
+        let mut mercator_matrix: Mat4 = [0.0; 16];
+        self.projection.tile_matrix(&mut mercator_matrix, tile_id, self.scale);
+        let a = mercator_matrix;
+        matrix::multiply(&mut mercator_matrix, proj_matrix, &a);
+        self.projection.get_projection_data(self, tile_id, &mercator_matrix)
+    }
+
+    /// `getProjectionData(const UnwrappedTileID&)`.
+    pub fn get_projection_data(&self, tile_id: &UnwrappedTileID) -> ProjectionData {
+        self.get_projection_data_with(tile_id, &self.get_projection_matrix())
+    }
+
+    pub fn get_projection_data_for_matrix(&self, tile_id: &UnwrappedTileID, mercator_matrix: &Mat4) -> ProjectionData {
+        self.projection.get_projection_data(self, tile_id, mercator_matrix)
     }
 
     /// `getProjMatrix(mat4&, uint16_t nearZ = 1, bool aligned = false)`.
@@ -1141,7 +1150,7 @@ impl TransformState {
             return ScreenCoordinate::new(0.0, 0.0);
         }
 
-        let pt = Projection::project(lat_lng, self.scale);
+        let pt = self.projection.project(lat_lng, self.scale);
         let pt = Point::new(pt.x / TILE_SIZE_D, pt.y / TILE_SIZE_D);
         let c: Vec4 = [pt.x, pt.y, 0.0, 1.0];
         matrix::transform_mat4(p, &c, &self.get_coord_matrix());
@@ -1195,7 +1204,9 @@ impl TransformState {
     /// `screenCoordinateToLatLng(const ScreenCoordinate&, LatLng::WrapMode = LatLng::Unwrapped)`.
     pub fn screen_coordinate_to_lat_lng(&self, point: &ScreenCoordinate, wrap_mode: WrapMode) -> LatLng {
         let coord = self.screen_coordinate_to_tile_coordinate(point, 0);
-        unproject(&coord.p, 1.0 / TILE_SIZE_D, wrap_mode)
+        self.projection
+            .unproject(&coord.p, 1.0 / TILE_SIZE_D, wrap_mode)
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 
     fn coordinate_point_matrix(&self, proj_matrix: &Mat4) -> Mat4 {
