@@ -3,6 +3,9 @@
 
 use crate::line_atlas::LineAtlas;
 use mln_gfx::shaders::clipping_mask_ubo::ClipUBO;
+use crate::globe_tile_mesh::raw_globe_tile_mesh;
+use crate::layer_tweaker::to_projection_ubo;
+use mln_gfx::globe_clip_mask::GlobeClipMask;
 use crate::pattern_atlas::PatternAtlas;
 use crate::render_pass::RenderPass;
 use crate::render_static_data::RenderStaticData;
@@ -15,10 +18,11 @@ use mln_util::Color;
 use mln_gfx::types::{DepthFunctionType, StencilOpType};
 use mln_gfx::{ColorMode, CommandEncoder, Context, DepthMaskType, DepthMode, RendererBackend, ScissorRect, ShaderRegistry, StencilMode};
 use mln_map_types::{MapDebugOptions, MapMode, ProjectionData, TileLodMode, TransformState, ViewportMode};
-use mln_tile_id::UnwrappedTileID;
+use mln_tile_id::{CanonicalTileID, UnwrappedTileID};
 use mln_util::chrono::TimePoint;
 use mln_util::mat4::Mat4;
 use mln_util::size::Size;
+use mln_util::subdivision_granularity::SubdivisionGranularitySetting;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -109,6 +113,14 @@ pub struct PaintParameters<'a> {
 
     pub scissor_rect: ScissorRect,
     pub capture_rendered_features: bool,
+}
+
+/// The WebGPU context's `rawGlobeTileMesh(tile, borders,
+/// SubdivisionGranularitySetting::globe().stencil)`, in the form the gfx trait
+/// takes it (see `Context::render_globe_tile_clipping_masks`).
+fn globe_clip_mesh(tile: &CanonicalTileID, borders: bool) -> (Vec<u8>, Vec<u16>) {
+    let mesh = raw_globe_tile_mesh(tile, borders, &SubdivisionGranularitySetting::globe().stencil);
+    (mesh.vertices, mesh.indices)
 }
 
 impl<'a> PaintParameters<'a> {
@@ -202,7 +214,9 @@ impl<'a> PaintParameters<'a> {
     }
 
     pub fn depth_mode_for_sublayer(&self, _n: u8, mask: DepthMaskType) -> DepthMode {
-        if self.current_layer < self.opaque_pass_cutoff {
+        // On the globe, 2D layers are ordered by draw order alone; their Z is
+        // the back-hemisphere clip.
+        if self.current_layer < self.opaque_pass_cutoff || self.state.is_globe_rendering() {
             return DepthMode::disabled();
         }
         DepthMode {
@@ -247,18 +261,25 @@ impl<'a> PaintParameters<'a> {
 
         // The render pass clears the stencil only where it begins; within it,
         // draw zero over the zoom 0 tile, as Metal does.
-        // TODO(port): on the globe, the zoom 0 tile's globe clip mask (globe
-        // phase 6a).
-        let matrix = self.matrix_for_tile(&UnwrappedTileID::new(0, 0, 0), false);
-        let tile_ubo = [ClipUBO {
-            matrix: std::array::from_fn(|i| matrix[i] as f32),
-            stencil_ref: 0,
-            pad1: 0.0,
-            pad2: 0.0,
-            pad3: 0.0,
-        }];
         let render_pass = self.render_pass.as_deref().expect("render pass");
-        self.context.render_tile_clipping_masks(render_pass, self.shaders, &tile_ubo);
+        if self.state.is_globe_rendering() {
+            let masks = [GlobeClipMask {
+                projection: to_projection_ubo(&self.projection_data_for_tile(&UnwrappedTileID::new(0, 0, 0), false)),
+                stencil_ref: 0,
+                tile: CanonicalTileID::new(0, 0, 0),
+            }];
+            self.context.render_globe_tile_clipping_masks(render_pass, self.shaders, &masks, &globe_clip_mesh);
+        } else {
+            let matrix = self.matrix_for_tile(&UnwrappedTileID::new(0, 0, 0), false);
+            let tile_ubo = [ClipUBO {
+                matrix: std::array::from_fn(|i| matrix[i] as f32),
+                stencil_ref: 0,
+                pad1: 0.0,
+                pad2: 0.0,
+                pad3: 0.0,
+            }];
+            self.context.render_tile_clipping_masks(render_pass, self.shaders, &tile_ubo);
+        }
         self.context.rendering_stats().stencil_clears += 1;
     }
 
@@ -285,9 +306,14 @@ impl<'a> PaintParameters<'a> {
         if self.next_stencil_id as usize + count > Self::MAX_STENCIL_VALUE as usize {
             self.clear_stencil();
         }
+        if !self.state.is_globe_rendering() {
+            self.context.release_globe_clip_masks();
+        }
 
         // MLN_RENDER_BACKEND_WEBGPU
+        let globe = self.state.is_globe_rendering();
         let mut tile_ubos: Vec<ClipUBO> = Vec::new();
+        let mut globe_masks: Vec<GlobeClipMask> = Vec::new();
         for tile_id in tile_ids {
             let stencil_id = self.next_stencil_id;
             if self.tile_clipping_mask_ids.contains_key(tile_id) {
@@ -295,6 +321,15 @@ impl<'a> PaintParameters<'a> {
             }
             self.tile_clipping_mask_ids.insert(*tile_id, stencil_id);
             self.next_stencil_id += 1;
+
+            if globe {
+                globe_masks.push(GlobeClipMask {
+                    projection: to_projection_ubo(&self.projection_data_for_tile(tile_id, false)),
+                    stencil_ref: stencil_id as u32,
+                    tile: tile_id.canonical,
+                });
+                continue;
+            }
 
             if tile_ubos.is_empty() {
                 tile_ubos.reserve(count);
@@ -310,9 +345,13 @@ impl<'a> PaintParameters<'a> {
             });
         }
 
-        if !tile_ubos.is_empty() {
+        if !tile_ubos.is_empty() || !globe_masks.is_empty() {
             let render_pass = self.render_pass.as_deref().expect("render pass");
-            self.context.render_tile_clipping_masks(render_pass, self.shaders, &tile_ubos);
+            if globe {
+                self.context.render_globe_tile_clipping_masks(render_pass, self.shaders, &globe_masks, &globe_clip_mesh);
+            } else {
+                self.context.render_tile_clipping_masks(render_pass, self.shaders, &tile_ubos);
+            }
             self.context.rendering_stats().stencil_updates += 1;
         }
 
