@@ -2,13 +2,15 @@
 // process, reference.cpp):
 //
 // - buckets as the tile worker builds them (style layer JSON -> render layer
-//   evaluate -> layout -> createBucket): circle, fill and line vertices,
+//   evaluate -> layout -> createBucket), with and without the globe's
+//   subdivision granularity: circle, fill and line vertices,
 //   indexes and segments, and every layer's paint property binders (the
 //   interleaved attribute data, vertex offsets, statistics and
 //   interpolation factors at several zooms);
 // - the polyline generator (joins, caps, round/miter limits, sharp corners,
 //   overscaling, clip distances);
-// - the fill generator with triangulated outlines (earcut, outlines);
+// - the fill generator with triangulated outlines (earcut, outlines), and its
+//   subdivision for the globe (pole caps, zoom 0's clipping);
 // - the line atlas dash patterns.
 //
 // Both sides print the same text report; the comparison is on that text
@@ -47,6 +49,7 @@ use mln_tile_id::{CanonicalTileID, OverscaledTileID};
 use mln_util::chrono::TimePoint;
 use mln_util::geometry::FeatureType;
 use mln_util::immutable::Immutable;
+use mln_util::subdivision_granularity::SubdivisionGranularitySetting;
 use proptest::prelude::*;
 use proptest::test_runner::{Config, TestRunner};
 use serde_json::{json, Value as Json};
@@ -400,6 +403,11 @@ fn rust_bucket_report(request: &Json) -> String {
         layer_type: type_info,
         global_state: None,
         retain_features_by_id: false,
+        subdivision_granularity: if request["globe"].as_bool().unwrap_or(false) {
+            SubdivisionGranularitySetting::globe()
+        } else {
+            SubdivisionGranularitySetting::none()
+        },
     };
     let source_layer = StubLayer(parse_features(&request["features"]));
     let mut image_dependencies = ImageDependencies::new();
@@ -548,6 +556,15 @@ fn rust_fillgen_report(request: &Json) -> String {
     let mut line_segments = Vec::new();
     let mut basic_line_indexes = Vec::new();
     let mut basic_line_segments = Vec::new();
+    let canonical = match request["canonical"].as_array() {
+        Some(t) => CanonicalTileID::new(
+            t[0].as_u64().unwrap() as u8,
+            t[1].as_u64().unwrap() as u32,
+            t[2].as_u64().unwrap() as u32,
+        ),
+        None => CanonicalTileID::new(0, 0, 0),
+    };
+    let granularity = request["granularity"].as_u64().unwrap_or(1) as u32;
     let mut out = String::new();
     for geometry in request["geometries"].as_array().unwrap() {
         if generate_fill_and_outline_buffers(
@@ -560,6 +577,8 @@ fn rust_fillgen_report(request: &Json) -> String {
             &mut line_segments,
             &mut basic_line_indexes,
             &mut basic_line_segments,
+            &canonical,
+            granularity,
         )
         .is_err()
         {
@@ -736,10 +755,18 @@ fn tile() -> impl Strategy<Value = (f64, Json, u64)> {
     })
 }
 
-fn bucket_request(layers: Vec<Json>, features: Vec<Json>, tile: (f64, Json, u64), continuous: bool) -> Json {
+/// `globe`: the globe's subdivision granularity instead of none.
+fn bucket_request(
+    layers: Vec<Json>,
+    features: Vec<Json>,
+    tile: (f64, Json, u64),
+    continuous: bool,
+    globe: bool,
+) -> Json {
     let (zoom, tile, oz) = tile;
     json!({
         "kind": "bucket",
+        "globe": globe,
         "layers": layers,
         "features": features,
         "tile": tile,
@@ -934,7 +961,7 @@ fn circle_buckets() {
                     Some(b) => with_second_layer(a, b),
                     None => vec![a],
                 };
-                bucket_request(layers, features, tile, continuous)
+                bucket_request(layers, features, tile, continuous, false)
             }),
     );
 }
@@ -948,13 +975,14 @@ fn fill_buckets() {
             proptest::option::of(fill_layer("b")),
             proptest::collection::vec(polygon_feature(), 0..5),
             tile(),
+            any::<bool>(),
         )
-            .prop_map(|(a, b, features, tile)| {
+            .prop_map(|(a, b, features, tile, globe)| {
                 let layers = match b {
                     Some(b) => with_second_layer(a, b),
                     None => vec![a],
                 };
-                bucket_request(layers, features, tile, false)
+                bucket_request(layers, features, tile, false, globe)
             }),
     );
 }
@@ -968,13 +996,14 @@ fn line_buckets() {
             proptest::option::of(line_layer("b")),
             proptest::collection::vec(line_feature(), 0..5),
             tile(),
+            any::<bool>(),
         )
-            .prop_map(|(a, b, features, tile)| {
+            .prop_map(|(a, b, features, tile, globe)| {
                 let layers = match b {
                     Some(b) => with_second_layer(a, b),
                     None => vec![a],
                 };
-                bucket_request(layers, features, tile, false)
+                bucket_request(layers, features, tile, false, globe)
             }),
     );
 }
@@ -1040,6 +1069,22 @@ fn fill_generator() {
         600,
         proptest::collection::vec(proptest::collection::vec(ring(4000.0), 1..5), 1..4)
             .prop_map(|geometries| json!({"kind": "fillgen", "geometries": geometries})),
+    );
+    // The globe's subdivision: zoom 0 drops what lies outside the tile, and
+    // the first and last rows of tiles get pole caps.
+    run(
+        400,
+        (
+            proptest::collection::vec(proptest::collection::vec(ring(1500.0), 1..4), 1..3),
+            (0u8..4).prop_flat_map(|z| {
+                let n = 1u32 << z;
+                (Just(z), 0..n, prop_oneof![Just(0), Just(n - 1), 0..n])
+            }),
+            prop_oneof![Just(2u32), Just(4), Just(8), Just(16), Just(32)],
+        )
+            .prop_map(|(geometries, (z, x, y), granularity)| {
+                json!({"kind": "fillgen", "geometries": geometries, "canonical": [z, x, y], "granularity": granularity})
+            }),
     );
 }
 

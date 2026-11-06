@@ -7,6 +7,7 @@ use crate::style_property::Kind;
 use feature::Value;
 use mln_conversion::Convertible;
 use mln_style_types::ProjectionDefinition;
+use mln_util::subdivision_granularity::SubdivisionGranularitySetting;
 
 /// gtest's `FloatingPoint<T>::AlmostEquals` distance: sign-and-magnitude
 /// bits mapped to biased integers.
@@ -152,4 +153,25 @@ fn projection() {
         assert!(parse_projection(r#"{"type":3}"#, &mut error).is_none());
         assert_eq!("value must be a string or an array of [from, to, transition]", error.message);
     }
+}
+
+// gtest: StyleConversion.ProjectionSubdivisionGranularity
+#[test]
+fn projection_subdivision_granularity() {
+    let mut error = Error::default();
+    let mut granularity = |src: &str| {
+        let json = parse_json(src);
+        let projection = <Projection as Converter>::convert(&Convertible::from(&json), &mut error);
+        projection.unwrap_or_else(|| panic!("{}", error.message)).impl_.get_subdivision_granularity()
+    };
+    // Only a style that never renders a globe keeps the flat, unsubdivided geometry.
+    assert_eq!(SubdivisionGranularitySetting::none(), granularity("{}"));
+    assert_eq!(SubdivisionGranularitySetting::none(), granularity(r#"{"type":"mercator"}"#));
+    assert_eq!(SubdivisionGranularitySetting::globe(), granularity(r#"{"type":"globe"}"#));
+    assert_eq!(SubdivisionGranularitySetting::globe(), granularity(r#"{"type":"vertical-perspective"}"#));
+    assert_eq!(SubdivisionGranularitySetting::globe(), granularity(r#"{"type":["mercator","vertical-perspective",0]}"#));
+    assert_eq!(
+        SubdivisionGranularitySetting::globe(),
+        granularity(r#"{"type":["interpolate",["linear"],["zoom"],10,"vertical-perspective",12,"mercator"]}"#)
+    );
 }
