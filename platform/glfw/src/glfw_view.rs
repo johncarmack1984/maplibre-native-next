@@ -303,6 +303,9 @@ impl GLFWView {
     /// `setMap(Map*)`
     pub fn set_map(&self, map: Rc<RefCell<Map>>) {
         // TODO(port): map->addAnnotationImage(makeImage("default_marker", 22, 22, 1)).
+        // The window always rotates (right drag), so drags and zooms on the
+        // globe turn the bearing with the planet.
+        map.borrow_mut().set_globe_free_bearing(true);
         self.state.borrow_mut().map = Some(map);
     }
 
@@ -743,7 +746,13 @@ impl ViewState {
             let dx = x - self.last_x;
             let dy = y - self.last_y;
             if dx != 0.0 || dy != 0.0 {
-                self.with_map(|map| map.move_by(&ScreenCoordinate::new(dx, dy), &AnimationOptions::default()));
+                self.with_map(|map| {
+                    map.move_by_with_anchor(
+                        &ScreenCoordinate::new(dx, dy),
+                        Some(ScreenCoordinate::new(x, y)),
+                        &AnimationOptions::default(),
+                    )
+                });
             }
         } else if self.rotating {
             let (first, second) = (ScreenCoordinate::new(self.last_x, self.last_y), ScreenCoordinate::new(x, y));
