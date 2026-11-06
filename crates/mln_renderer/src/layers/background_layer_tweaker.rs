@@ -2,13 +2,14 @@
 // src/mln/renderer/layers/background_layer_tweaker.cpp (MLN_UBO_CONSOLIDATION
 // branches: the port's backend is WebGPU).
 
-use crate::layer_tweaker::{get_tile_matrix, LayerTweaker, LayerTweakerBase};
+use crate::layer_tweaker::{get_projection_data, to_projection_ubo, LayerTweaker, LayerTweakerBase};
 use crate::paint_parameters::PaintParameters;
 use mln_gfx::renderer::layer_group::visit_layer_group_drawables;
 use mln_gfx::shaders::background_layer_ubo::{
     BackgroundDrawableUBO, BackgroundDrawableUnionUBO, BackgroundPatternDrawableUBO, BackgroundPatternPropsUBO,
     BackgroundPropsUBO,
 };
+use mln_gfx::shaders::layer_ubo::ProjectionUBO;
 use mln_gfx::shaders::shader_defines::{ID_BACKGROUND_DRAWABLE_UBO, ID_BACKGROUND_IMAGE_TEXTURE, ID_BACKGROUND_PROPS_UBO};
 use mln_gfx::texture2d::SamplerState;
 use mln_gfx::types::{TextureFilterType, TextureWrapType};
@@ -113,6 +114,7 @@ impl LayerTweaker for BackgroundLayerTweaker {
 
         let mut i: u32 = 0;
         let mut drawable_ubo_vector = vec![BackgroundDrawableUnionUBO::default(); layer_group.get_drawable_count()];
+        let mut projection_ubo_vector = vec![ProjectionUBO::default(); layer_group.get_drawable_count()];
 
         let self_ptr: *const Self = self;
         let check = |d: &dyn mln_gfx::Drawable| match d
@@ -137,7 +139,7 @@ impl LayerTweaker for BackgroundLayerTweaker {
             // non-pattern.
 
             let tile_id = tile_id.to_unwrapped();
-            let matrix = get_tile_matrix(
+            let projection = get_projection_data(
                 &tile_id,
                 parameters,
                 &[0.0, 0.0],
@@ -147,6 +149,8 @@ impl LayerTweaker for BackgroundLayerTweaker {
                 drawable,
                 false,
             );
+            let matrix = projection.fallback_matrix;
+            projection_ubo_vector[i as usize] = to_projection_ubo(&projection);
 
             if has_pattern {
                 if let Some(tex) = parameters.pattern_atlas.borrow().texture() {
@@ -200,5 +204,6 @@ impl LayerTweaker for BackgroundLayerTweaker {
         layer_group
             .mutable_uniform_buffers()
             .set(ID_BACKGROUND_DRAWABLE_UBO, self.drawable_uniform_buffer.clone());
+        self.base.upload_projection_ubos(layer_group.mutable_uniform_buffers(), &projection_ubo_vector, context);
     }
 }

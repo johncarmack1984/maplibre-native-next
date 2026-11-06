@@ -15,7 +15,6 @@
   "query-tests/projection/globe/circle-viewport-viewport-offcenter-padding": "TODO(port): queries on the globe",
   "render-tests/debug/collision-icon-text-line-translate": "TODO(port): symbols collide and are laid out where *-translate puts them (globe phases 12f, 12be, 12bo, 12bs)",
   "render-tests/fill-extrusion-color/function": "TODO(port): beyond M1",
-  "render-tests/fill-extrusion-multiple/stencil-wrap": "TODO(port): clear the stencil when its values wrap around (globe phase 12ai)",
   "render-tests/fill-outline-color/property-function": "C++ WebGPU fails it too (metrics/ignores/platform-macos-webgpu.json): data-driven fill outlines are 1px line primitives on WebGPU",
   "render-tests/fill-outline-color/zoom-and-property-function": "C++ WebGPU fails it too (metrics/ignores/platform-macos-webgpu.json): data-driven fill outlines are 1px line primitives on WebGPU",
   "render-tests/fill-pattern/uneven-pattern": "TODO(port): beyond M1",

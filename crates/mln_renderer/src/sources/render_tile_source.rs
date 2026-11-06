@@ -11,17 +11,19 @@
 // drawables for MapDebugOptions::Timestamps / ParseStatus (the DebugBucket
 // has no text yet, see buckets/debug_bucket.rs).
 
+use mln_gfx::projection_variant::ProjectionVariant;
 use crate::render_source::{RenderSourceBase, RenderTiles, SourcePrepareParameters};
 use crate::render_tile::RenderTile;
 use crate::render_tree::RenderItem;
 // layers: debug
-use crate::layer_tweaker::{get_tile_matrix, LayerTweaker, LayerTweakerBase};
+use crate::layer_tweaker::{get_projection_data, to_projection_ubo, LayerTweaker, LayerTweakerBase};
 use crate::layers::cast_matrix;
 use crate::paint_parameters::PaintParameters;
 use crate::render_tree::{DebugLayerGroupMap, DebugLayerTweakers, DebugType};
 use mln_gfx::polyline_generator::PolylineGeneratorOptions;
 use mln_gfx::renderer::layer_group::visit_layer_group_drawables;
 use mln_gfx::shader_group::StringIDSetsPair;
+use mln_gfx::shaders::layer_ubo::ProjectionUBO;
 use mln_gfx::shaders::line_layer_ubo::{line_expression_mask, LineDrawableUBO, LineDrawableUnionUBO, LineEvaluatedPropsUBO};
 use mln_gfx::shaders::shader_defines::{
     ID_LINE_BLUR_VERTEX_ATTRIBUTE, ID_LINE_COLOR_VERTEX_ATTRIBUTE, ID_LINE_DRAWABLE_UBO, ID_LINE_EVALUATED_PROPS_UBO,
@@ -107,7 +109,9 @@ impl RenderItem for TileSourceRenderItem {
 
         // initialize debug builder
         const DEBUG_SHADER_NAME: &str = "DebugShader";
-        if context.get_generic_shader(shaders, DEBUG_SHADER_NAME).is_none() {
+        // TODO(port): the globe variant while the globe renders (globe phase
+        // 9h), here and for the polylines.
+        if context.get_generic_shader(shaders, DEBUG_SHADER_NAME, ProjectionVariant::Mercator).is_none() {
             return;
         }
 
@@ -135,7 +139,7 @@ impl RenderItem for TileSourceRenderItem {
                 .into_iter()
                 .collect(),
             );
-            shader_group.get_or_create_shader(context, &properties_as_uniforms, "a_pos")
+            shader_group.get_or_create_shader(context, &properties_as_uniforms, ProjectionVariant::Mercator, "a_pos")
         };
 
         let mut polyline_builder: Option<UniqueDrawableBuilder> = None;
@@ -372,6 +376,7 @@ impl LayerTweaker for PolylineLayerTweaker {
 
         let mut i: u32 = 0;
         let mut drawable_ubo_vector = vec![LineDrawableUnionUBO::default(); layer_group.get_drawable_count()];
+        let mut projection_ubo_vector = vec![ProjectionUBO::default(); layer_group.get_drawable_count()];
         visit_layer_group_drawables(layer_group, |drawable| {
             let Some(tile_id) = drawable.get_tile_id() else {
                 return;
@@ -381,7 +386,7 @@ impl LayerTweaker for PolylineLayerTweaker {
             let zoom = parameters.state.get_zoom();
             // C++ also computes an unused `tileMatrix` (state.matrixFor).
 
-            let matrix = get_tile_matrix(
+            let projection = get_projection_data(
                 &tile_id,
                 parameters,
                 &[0.0, 0.0],
@@ -391,6 +396,8 @@ impl LayerTweaker for PolylineLayerTweaker {
                 drawable,
                 false,
             );
+            let matrix = projection.fallback_matrix;
+            projection_ubo_vector[i as usize] = to_projection_ubo(&projection);
 
             drawable_ubo_vector[i as usize].set(&LineDrawableUBO {
                 matrix: cast_matrix(&matrix),
@@ -414,6 +421,7 @@ impl LayerTweaker for PolylineLayerTweaker {
             _ => self.drawable_uniform_buffer = Some(context.create_uniform_buffer(bytes, false, true)),
         }
         layer_group.mutable_uniform_buffers().set(ID_LINE_DRAWABLE_UBO, self.drawable_uniform_buffer.clone());
+        self.base.upload_projection_ubos(layer_group.mutable_uniform_buffers(), &projection_ubo_vector, context);
     }
 }
 
