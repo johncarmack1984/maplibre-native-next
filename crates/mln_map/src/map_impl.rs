@@ -33,6 +33,7 @@ use mln_tile_id::OverscaledTileID;
 use mln_util::chrono::{Clock, TimePoint};
 use mln_util::exception::{NotFoundException, StyleLoadException, StyleParseException};
 use mln_util::identity::SimpleIdentity;
+use mln_util::subdivision_granularity::SubdivisionGranularitySetting;
 
 use crate::map_observer::{CameraChangeMode, MapLoadError, MapObserver, RenderFrameStatus};
 use crate::map_options::MapOptions;
@@ -327,6 +328,11 @@ impl MapImpl {
                 tile_lod_pitch_threshold: self.tile_lod_pitch_threshold.get(),
                 tile_lod_zoom_shift: self.tile_lod_zoom_shift.get(),
                 tile_lod_mode: self.tile_lod_mode.get(),
+                subdivision_granularity: if self.mode == MapMode::Tile {
+                    SubdivisionGranularitySetting::none()
+                } else {
+                    style_impl.get_projection().impl_.get_subdivision_granularity()
+                },
             }
         };
 

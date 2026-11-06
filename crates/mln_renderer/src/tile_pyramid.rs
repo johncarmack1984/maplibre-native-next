@@ -19,6 +19,7 @@ use mln_util::geo::{LatLngBounds, WrapMode};
 use mln_util::immutable::Immutable;
 use mln_util::logging::{Event, Log};
 use mln_util::range::Range;
+use mln_util::subdivision_granularity::SubdivisionGranularitySetting;
 
 use crate::algorithm::update_renderables::{PrefetchedTile, RenderablesContext, update_renderables};
 use crate::tile::tile::{Tile, TileNecessity, TileUpdateParameters};
@@ -47,6 +48,7 @@ pub struct TilePyramid {
 
     fading_tiles: bool,
     cache_enabled: bool,
+    last_subdivision_granularity: SubdivisionGranularitySetting,
 }
 
 /// The `TilePyramid::update` callbacks of `algorithm::updateRenderables`.
@@ -94,6 +96,7 @@ where
             Some(tile) => tile,
             None => {
                 let tile = (self.create_tile)(id, self.observer.clone())?;
+                tile.set_subdivision_granularity(&self.parameters.subdivision_granularity);
                 tile.set_layers(self.layers, self.parameters.global_state.clone());
                 tile
             }
@@ -115,6 +118,7 @@ where
         }
 
         if self.needs_relayout {
+            tile.set_subdivision_granularity(&self.parameters.subdivision_granularity);
             tile.set_layers(self.layers, self.parameters.global_state.clone());
         }
     }
@@ -164,6 +168,7 @@ impl TilePyramid {
             prev_lng: 0.0,
             fading_tiles: false,
             cache_enabled: true,
+            last_subdivision_granularity: SubdivisionGranularitySetting::none(),
         }
     }
 
@@ -186,8 +191,12 @@ impl TilePyramid {
         bounds: Option<LatLngBounds>,
         create_tile: impl FnMut(&OverscaledTileID, Rc<dyn TileObserver>) -> Option<Box<dyn Tile>>,
     ) {
+        let subdivision_granularity = parameters.subdivision_granularity;
+        let relayout = needs_relayout || subdivision_granularity != self.last_subdivision_granularity;
+        self.last_subdivision_granularity = subdivision_granularity;
+
         // If we need a relayout, abandon any cached tiles; they're now stale.
-        if needs_relayout {
+        if relayout {
             self.cache.clear();
         }
 
@@ -196,7 +205,7 @@ impl TilePyramid {
         if !needs_rendering {
             let tiles = std::mem::take(&mut self.tiles);
             for (id, tile) in tiles {
-                if !needs_relayout {
+                if !relayout {
                     // These tiles are invisible, we set optional necessity
                     // for them and thus suppress network requests on tiles
                     // expiration (see `OnlineFileRequest`).
@@ -340,7 +349,7 @@ impl TilePyramid {
             layers,
             parameters,
             tile_range,
-            needs_relayout,
+            needs_relayout: relayout,
             minimum_update_interval,
             is_volatile,
             create_tile,
@@ -394,7 +403,7 @@ impl TilePyramid {
             // Remove the tile from the map. If it requires re-layout,
             // discard it asynchronously, otherwise keep it in the cache
             if let Some(tile) = self.tiles.remove(&key) {
-                if needs_relayout {
+                if relayout {
                     self.cache.deferred_release(tile);
                 } else {
                     tile.set_necessity(TileNecessity::Optional);

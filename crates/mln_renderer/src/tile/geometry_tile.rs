@@ -44,6 +44,7 @@ use mln_text::glyph::{GlyphDependencies, GlyphMap, HBShapeRequests};
 use mln_tile_id::OverscaledTileID;
 use mln_util::exception::ExceptionPtr;
 use mln_util::immutable::Immutable;
+use mln_util::subdivision_granularity::SubdivisionGranularitySetting;
 
 use crate::bucket::BucketPtr;
 use crate::geometry::feature_index::FeatureIndex;
@@ -257,6 +258,7 @@ pub struct GeometryTileInner {
     mode: MapMode,
 
     show_collision_boxes: Cell<bool>,
+    subdivision_granularity: Cell<SubdivisionGranularitySetting>,
 
     fade_state: Cell<FadeState>,
 }
@@ -511,6 +513,7 @@ impl GeometryTile {
             atlas_textures: RefCell::new(None),
             mode: parameters.mode,
             show_collision_boxes: Cell::new(show_collision_boxes),
+            subdivision_granularity: Cell::new(SubdivisionGranularitySetting::none()),
             fade_state: Cell::new(FadeState::Loaded),
         });
         *sync_parent.borrow_mut() = Rc::downgrade(&inner);
@@ -616,8 +619,9 @@ impl Tile for GeometryTile {
         inner.correlation_id.set(inner.correlation_id.get() + 1);
         let correlation_id = inner.correlation_id.get();
         let available_images = inner.available_images();
+        let subdivision_granularity = inner.subdivision_granularity.get();
         inner.worker.invoke(move |worker: &mut GeometryTileWorker| {
-            worker.set_layers(impls, global_state, available_images, correlation_id)
+            worker.set_layers(impls, global_state, available_images, subdivision_granularity, correlation_id)
         });
     }
 
@@ -631,6 +635,10 @@ impl Tile for GeometryTile {
                 worker.set_show_collision_boxes(show_collision_boxes, correlation_id)
             });
         }
+    }
+
+    fn set_subdivision_granularity(&self, value: &SubdivisionGranularitySetting) {
+        self.inner.subdivision_granularity.set(*value);
     }
 
     fn set_observer(&self, observer: Rc<dyn TileObserver>) {

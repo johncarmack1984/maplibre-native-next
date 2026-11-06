@@ -1990,6 +1990,65 @@ fn style_update_zoom_dependency() {
     check_image("test/fixtures/map/style_update_zoom_dependency/after_update_green", &test.render().image, 0.0006, 0.1);
 }
 
+// gtest: Map.GlobeHandOffKeepsTiles
+#[test]
+fn globe_hand_off_keeps_tiles() {
+    // Crossing the globe's Mercator hand-off must not re-parse the tiles already on screen.
+    let _run_loop = RunLoop::new();
+    // C++ guards `parsed` with `tileMutex`; the observer is called on this thread.
+    let parsed: Rc<RefCell<Vec<OverscaledTileID>>> = Rc::new(RefCell::new(Vec::new()));
+    let observer = Rc::new(StubMapObserver::default());
+    {
+        let parsed = parsed.clone();
+        observer.on_tile_action_callback.set(move |(op, id, source_id)| {
+            if source_id != "mapbox" || op != TileOperation::StartParse {
+                return;
+            }
+            parsed.borrow_mut().push(id);
+        });
+    }
+
+    let mut frontend = HeadlessFrontend::new(Size::new(512, 512), 1.0);
+    // C++ runs from the checkout's root; the asset path is relative to it.
+    let asset_path = cpp_root().join("test/fixtures/api/assets");
+    let mut map = Map::with_file_source(
+        &frontend,
+        observer.clone(),
+        Arc::new(MainResourceLoader::new(
+            &ResourceOptions::default()
+                .with_cache_path(":memory:")
+                .with_asset_path(asset_path.to_str().expect("asset path")),
+            &ClientOptions::default(),
+        )),
+        MapOptions::new().with_map_mode(MapMode::Static).with_size(frontend.get_size()),
+    );
+
+    map.get_style_mut().load_json(&read_file("test/fixtures/api/water.json"));
+    map.get_style_mut()
+        .get_projection_mut()
+        .set_type(PropertyValue::Constant(ProjectionDefinition::from_name("globe")));
+    let center = ll(37.8, -122.5); // the fixture has tile 10/163/395
+    map.jump_to(&cam().with_center(Some(center)).with_zoom(Some(10.5)));
+    frontend.render(&mut map).unwrap_or_else(|e| panic!("render: {e}"));
+    assert!(map.get_transform_state().is_globe_rendering());
+    let first_visit = std::mem::take(&mut *parsed.borrow_mut());
+    assert!(!first_visit.is_empty());
+
+    // Zoom 12.5 is Mercator. The zoom-10 tiles stay on screen while their children load; they must not be parsed
+    // again.
+    map.jump_to(&cam().with_center(Some(center)).with_zoom(Some(12.5)));
+    frontend.render(&mut map).unwrap_or_else(|e| panic!("render: {e}"));
+    assert!(!map.get_transform_state().is_globe_rendering());
+    let parsed = parsed.borrow();
+    let reparsed: Vec<&OverscaledTileID> = parsed.iter().filter(|id| first_visit.contains(id)).collect();
+    assert!(
+        reparsed.is_empty(),
+        "{} of {} tiles were parsed again after the hand-off",
+        reparsed.len(),
+        first_visit.len()
+    );
+}
+
 // gtest: Map.GlobeKeepsItsTilesAcrossTheAntimeridian
 #[test]
 fn globe_keeps_its_tiles_across_the_antimeridian() {

@@ -271,3 +271,44 @@ rust_test(
         "//crates/mln_math",
     ],
 )
+
+# Ports test/util/subdivision.test.cpp (marker `// gtest: Group.Name`).
+rust_test(
+    name = "gtest_subdivision",
+    srcs = ["tests/gtest_subdivision.rs"],
+    deps = [
+        ":mln_renderer",
+        "//crates/mln_gfx",
+        "//crates/mln_style",
+        "//crates/mln_style_types",
+        "//crates/mln_tile_id",
+        "//crates/mln_util",
+        "//vendor/feature",
+        "//vendor/geometry",
+        "@next_crates//:bytemuck",
+    ],
+)
+
+# Ports test/gfx/fill_large_mesh_arrays.test.cpp (marker
+# `// gtest: Group.Name`).
+rust_test(
+    name = "gtest_fill_large_mesh_arrays",
+    srcs = ["tests/gtest_fill_large_mesh_arrays.rs"],
+    deps = [
+        ":mln_renderer",
+        "//crates/mln_gfx",
+    ],
+)
+
+# Ports test/gfx/fill_generator.test.cpp (marker `// gtest: Group.Name`).
+rust_test(
+    name = "gtest_fill_generator",
+    srcs = ["tests/gtest_fill_generator.rs"],
+    deps = [
+        ":mln_renderer",
+        "//crates/mln_gfx",
+        "//crates/mln_tile_id",
+        "//crates/mln_util",
+        "//vendor/geometry",
+    ],
+)
