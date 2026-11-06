@@ -188,6 +188,18 @@ pub fn log2(x: f64) -> f64 {
     x.log2()
 }
 
+unsafe extern "C" {
+    #[link_name = "asinh"]
+    fn libm_asinh(x: f64) -> f64;
+}
+
+/// `std::asinh`: the C library's. Rust's `f64::asinh` is a formula of its
+/// own, which can differ from it in the last bit.
+pub fn asinh(x: f64) -> f64 {
+    // SAFETY: asinh is a pure C library function of a double.
+    unsafe { libm_asinh(x) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

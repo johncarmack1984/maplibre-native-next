@@ -25,6 +25,7 @@ use mln_style::sprite::Sprite;
 use mln_actor::{TaggedScheduler, scheduler};
 use mln_storage::FileSource;
 use mln_style::Style;
+use mln_style_types::{ProjectionDefinition, ProjectionType};
 use mln_util::chrono::{Clock, TimePoint};
 use mln_util::identity::SimpleIdentity;
 use mln_util::exception::{NotFoundException, StyleLoadException, StyleParseException};
@@ -209,6 +210,13 @@ impl MapImpl {
         map.transform
             .borrow_mut()
             .set_north_orientation(map_options.north_orientation());
+        // C++ captures `this`; the map owns the transform, so a `Weak`.
+        let weak_map: Weak<MapImpl> = Rc::downgrade(&map);
+        map.transform.borrow_mut().set_projection_for_zoom(Some(Rc::new(move |zoom: f64| {
+            weak_map
+                .upgrade()
+                .map_or_else(|| ProjectionDefinition::new(ProjectionType::Mercator), |map| map.projection_at(zoom))
+        })));
         let style_observer: Rc<dyn StyleObserver> = Rc::new(MapStyleObserver {
             map: Rc::downgrade(&map),
         });
@@ -290,6 +298,9 @@ impl MapImpl {
         };
 
         self.transform.borrow_mut().update_transitions(time_point);
+        let zoom = self.transform.borrow().get_zoom();
+        let projection = self.projection_at(zoom);
+        self.transform.borrow_mut().set_projection_definition(&projection);
 
         let params = {
             let style = self.style.borrow();
@@ -365,8 +376,22 @@ impl MapImpl {
 
     pub fn jump_to(&self, camera: &CameraOptions) {
         self.camera_mutated.set(true);
+        // The style's projection decides how the camera is constrained, so it
+        // has to be in place first.
+        let zoom = camera.zoom.unwrap_or_else(|| self.transform.borrow().get_zoom());
+        let projection = self.projection_at(zoom);
+        self.transform.borrow_mut().set_projection_definition(&projection);
         self.transform.borrow_mut().jump_to(camera);
         self.on_update();
+    }
+
+    /// The style's projection at the zoom; always Mercator in tile mode,
+    /// whose tiles are Mercator tiles.
+    pub(crate) fn projection_at(&self, zoom: f64) -> ProjectionDefinition {
+        if self.mode == MapMode::Tile {
+            return ProjectionDefinition::new(ProjectionType::Mercator);
+        }
+        self.style.borrow().impl_.get_projection().impl_.evaluate(zoom as f32)
     }
 }
 
