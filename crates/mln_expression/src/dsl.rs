@@ -107,6 +107,13 @@ pub fn to_padding(value: Box<dyn Expression>, def: Option<Box<dyn Expression>>) 
     coercion(Type::Padding, value, def)
 }
 
+pub fn to_projection_definition(
+    value: Box<dyn Expression>,
+    def: Option<Box<dyn Expression>>,
+) -> Box<dyn Expression> {
+    coercion(Type::ProjectionDefinition, value, def)
+}
+
 pub fn to_variable_anchor_offset(
     value: Box<dyn Expression>,
     def: Option<Box<dyn Expression>>,

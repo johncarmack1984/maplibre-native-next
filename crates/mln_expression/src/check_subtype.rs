@@ -47,6 +47,7 @@ pub fn check_subtype(expected: &Type, t: &Type) -> Option<String> {
                 Type::Object,
                 Type::Color,
                 Type::Padding,
+                Type::ProjectionDefinition,
                 Type::Formatted,
                 Type::Image,
                 Array::new(Type::Value).into(),

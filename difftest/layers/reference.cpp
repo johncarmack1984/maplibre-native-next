@@ -429,7 +429,9 @@ std::string fillgenReport(const JSValue& request) {
                                               lineIndexes,
                                               lineSegments,
                                               basicLineIndexes,
-                                              basicLineSegments);
+                                              basicLineSegments,
+                                              // Unused at the default granularity of 1, which doesn't subdivide.
+                                              CanonicalTileID(0, 0, 0));
         }
     } catch (...) {
         out << "exception\n";

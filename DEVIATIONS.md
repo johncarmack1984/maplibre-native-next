@@ -128,6 +128,7 @@ account for it.
   `style::Observer` methods take `&self` (`Rc<dyn Observer>`), so an
   observer cannot read the style back from inside `on_update` (the C++
   TransitionOptionsPublishUpdates test does; the port reads it afterwards).
+- **[style] Projection observer** (style/projection.cpp, style_impl.cpp). As for layers and the light (above), the C++ `ProjectionObserver*` that `Projection::setType` notifies is replaced by the guard `Style::Impl::get_projection_mut` returns, which runs `onProjectionChanged` on drop if the projection's impl `Arc` was replaced. Map.StyleExpiredWithProjection sets the projection both through the guard and with `set_projection`, and checks that the expired style's reload keeps it.
 - **[style] JSON syntax errors** (style/parser.cpp, util/rapidjson.cpp
   `formatJSONParseError`). The style is parsed with serde_json, so the
   message after "Failed to parse style: " is serde_json's ("expected value

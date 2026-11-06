@@ -85,6 +85,7 @@ rust_test(
         "//crates/mln_renderer",
         "//crates/mln_storage",
         "//crates/mln_style",
+        "//crates/mln_style_types",
         "//crates/mln_util",
         "//crates/mln_webgpu",
         "//vendor/feature",
@@ -102,6 +103,7 @@ rust_test(
     srcs = [
         "tests/gtest_annotations.rs",
         "tests/gtest_api.rs",
+        "tests/gtest_location_indicator.rs",
         "tests/gtest_query.rs",
         "tests/support/mod.rs",
     ],

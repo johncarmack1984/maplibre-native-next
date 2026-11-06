@@ -18,18 +18,19 @@ fn encode(t: &Type, out: &mut Vec<u8>) {
         Type::String => out.push(3),
         Type::Color => out.push(4),
         Type::Padding => out.push(5),
-        Type::VariableAnchorOffsetCollection => out.push(6),
-        Type::Object => out.push(7),
-        Type::Value => out.push(8),
+        Type::ProjectionDefinition => out.push(6),
+        Type::VariableAnchorOffsetCollection => out.push(7),
+        Type::Object => out.push(8),
+        Type::Value => out.push(9),
         Type::Array(a) => {
-            out.push(9);
+            out.push(10);
             out.push(a.n.map_or(0xFF, |n| n as u8));
             encode(&a.item_type, out);
         }
-        Type::Collator => out.push(10),
-        Type::Formatted => out.push(11),
-        Type::Error => out.push(12),
-        Type::Image => out.push(13),
+        Type::Collator => out.push(11),
+        Type::Formatted => out.push(12),
+        Type::Error => out.push(13),
+        Type::Image => out.push(14),
     }
 }
 
@@ -64,6 +65,7 @@ fn all_types() -> Vec<Type> {
         Type::String,
         Type::Color,
         Type::Padding,
+        Type::ProjectionDefinition,
         Type::VariableAnchorOffsetCollection,
         Type::Object,
         Type::Value,
@@ -93,7 +95,7 @@ fn all_types() -> Vec<Type> {
 #[test]
 fn to_string_matches() {
     let types = all_types();
-    assert_eq!(types.len(), 13 + 13 * 4 + 13 * 4 * 4);
+    assert_eq!(types.len(), 14 + 14 * 4 + 14 * 4 * 4);
     for t in &types {
         assert_eq!(type_::to_string(t), reference_to_string(t), "{t:?}");
     }

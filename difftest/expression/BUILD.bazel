@@ -76,6 +76,7 @@ rust_test(
     deps = [
         "//crates/mln_conversion",
         "//crates/mln_expression",
+        "//crates/mln_style_types",
         "//vendor/feature",
         "//vendor/geometry",
         "//vendor/rapidjson",
