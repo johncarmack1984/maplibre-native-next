@@ -376,12 +376,13 @@ impl RenderLayer for RenderLineLayer {
         &mut self,
         shaders: &ShaderRegistry,
         context: &dyn Context,
-        _state: &TransformState,
+        state: &TransformState,
         _parameters: &Arc<UpdateParameters>,
         _paint_parameters: &PaintParameters<'_>,
         _render_tree: &RenderTree,
         changes: &mut UniqueChangeRequestVec,
     ) {
+        self.update_projection_variant(state);
         // TODO(port): stats.renderedFeatures.clear() (rendered-feature capture).
 
         let Some(render_tiles) = self.base.render_tiles.clone().filter(|t| !t.is_empty()) else {
