@@ -774,16 +774,17 @@ impl Tile for GeometryTile {
         let query_padding = self.get_query_padding(layers);
 
         let id = self.inner.base.id();
-        let mut pos_matrix: Mat4 = [0.0; 16];
-        transform_state.matrix_for(&mut pos_matrix, &id.to_unwrapped());
-        let tile_matrix = pos_matrix;
-        mln_util::mat4::matrix::multiply(&mut pos_matrix, proj_matrix, &tile_matrix);
+        let projector = mln_map_types::TileProjector::with_data(
+            transform_state,
+            &id.to_unwrapped(),
+            transform_state.get_projection_data_with(&id.to_unwrapped(), proj_matrix),
+        );
 
         layout_result.feature_index.query(
             result,
             query_geometry,
             transform_state,
-            &pos_matrix,
+            &projector,
             mln_util::constants::TILE_SIZE_D * f64::from(id.overscale_factor()),
             2f64.powf(transform_state.get_zoom() - f64::from(id.overscaled_z)),
             options,

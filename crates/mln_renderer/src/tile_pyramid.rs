@@ -476,31 +476,124 @@ impl TilePyramid {
         }
 
         let height = f64::from(transform_state.get_size().height);
-        let query_geometry: Vec<geometry::Point<f64>> = geometry
-            .iter()
-            .map(|p| {
-                TileCoordinate::from_screen_coordinate(
-                    transform_state,
-                    0,
-                    &mln_util::geo::ScreenCoordinate::new(p.x, height - p.y),
-                )
-                .p
-            })
-            .collect();
+        let to_world = |p: &mln_util::geo::ScreenCoordinate| {
+            TileCoordinate::from_screen_coordinate(
+                transform_state,
+                0,
+                &mln_util::geo::ScreenCoordinate::new(p.x, height - p.y),
+            )
+            .p
+        };
+        let globe = transform_state.is_globe_rendering();
+        let on_planet = |p: &mln_util::geo::ScreenCoordinate| {
+            mln_map_types::VerticalPerspectiveProjection::screen_coordinate_hits_globe(
+                transform_state,
+                &mln_util::geo::ScreenCoordinate::new(p.x, height - p.y),
+            )
+        };
 
-        // mapbox::geometry::envelope(queryGeometry)
-        let mut box_min = query_geometry[0];
-        let mut box_max = query_geometry[0];
-        for p in &query_geometry {
-            box_min.x = if p.x < box_min.x { p.x } else { box_min.x };
-            box_min.y = if p.y < box_min.y { p.y } else { box_min.y };
-            box_max.x = if box_max.x < p.x { p.x } else { box_max.x };
-            box_max.y = if box_max.y < p.y { p.y } else { box_max.y };
+        // Past the planet's edge a query meets the planet only at the horizon,
+        // and a point there stands for the nearest horizon point, so a query's
+        // corners alone would cut the planet's limb off; its edges are followed
+        // in steps.
+        let mut traced: Vec<mln_util::geo::ScreenCoordinate> = Vec::new();
+        if globe && geometry.len() > 1 && !geometry.iter().all(on_planet) {
+            const STEPS: i32 = 32;
+            for i in 0..geometry.len() - 1 {
+                for k in 0..STEPS {
+                    let t = f64::from(k) / f64::from(STEPS);
+                    traced.push(mln_util::geo::ScreenCoordinate::new(
+                        geometry[i].x + (geometry[i + 1].x - geometry[i].x) * t,
+                        geometry[i].y + (geometry[i + 1].y - geometry[i].y) * t,
+                    ));
+                }
+            }
+            traced.push(*geometry.last().expect("geometry"));
+        }
+        let screen_geometry: &[mln_util::geo::ScreenCoordinate] = if traced.is_empty() { geometry } else { &traced };
+        let mut query_geometry: Vec<geometry::Point<f64>> = screen_geometry.iter().map(to_world).collect();
+
+        // `std::min(a, b)` and `std::max(a, b)`.
+        let std_min = |a: f64, b: f64| if b < a { b } else { a };
+        let std_max = |a: f64, b: f64| if a < b { b } else { a };
+        // mapbox::geometry::envelope
+        let envelope = |points: &mut dyn Iterator<Item = (f64, f64)>| {
+            let (x, y) = points.next().expect("points");
+            let (mut min, mut max) = ((x, y), (x, y));
+            for (x, y) in points {
+                min = (std_min(min.0, x), std_min(min.1, y));
+                max = (std_max(max.0, x), std_max(max.1, y));
+            }
+            (min, max)
+        };
+
+        if globe {
+            // GL JS's `transformBbox`: the globe has no world copies, so a box
+            // across the antimeridian lands on the rest of the world, which
+            // shows when its slightly shrunken corners fall outside it. It
+            // moves to the copy west of the main world.
+            let (mut screen_min, mut screen_max) = envelope(&mut geometry.iter().map(|p| (p.x, p.y)));
+            let shrink = std_min(screen_max.0 - screen_min.0, screen_max.1 - screen_min.1) * 0.001;
+            screen_min.0 += shrink;
+            screen_min.1 += shrink;
+            screen_max.0 -= shrink;
+            screen_max.1 -= shrink;
+            let (bounds_min, bounds_max) = envelope(&mut query_geometry.iter().map(|p| (p.x, p.y)));
+            // A corner past the planet stands for the nearest point on the
+            // horizon, which tells nothing about the antimeridian, so GL JS's
+            // check lost boxes that reach into space, such as the whole view
+            // of a small globe. Such corners are left out, and the box's
+            // center, when it is on the planet, decides by longitude for them.
+            let mut covered = true;
+            let mut reaches_into_space = false;
+            for corner in [
+                mln_util::geo::ScreenCoordinate::new(screen_min.0, screen_min.1),
+                mln_util::geo::ScreenCoordinate::new(screen_max.0, screen_min.1),
+                mln_util::geo::ScreenCoordinate::new(screen_min.0, screen_max.1),
+                mln_util::geo::ScreenCoordinate::new(screen_max.0, screen_max.1),
+            ] {
+                if !on_planet(&corner) {
+                    reaches_into_space = true;
+                    continue;
+                }
+                let c = to_world(&corner);
+                covered =
+                    covered && bounds_min.0 <= c.x && c.x <= bounds_max.0 && bounds_min.1 <= c.y && c.y <= bounds_max.1;
+            }
+            let center = mln_util::geo::ScreenCoordinate::new(
+                (screen_min.0 + screen_max.0) / 2.0,
+                (screen_min.1 + screen_max.1) / 2.0,
+            );
+            if reaches_into_space && on_planet(&center) {
+                let c = to_world(&center);
+                covered = covered && bounds_min.0 <= c.x && c.x <= bounds_max.0;
+            }
+            if !covered {
+                for c in query_geometry.iter_mut() {
+                    if c.x > 0.5 {
+                        c.x -= 1.0;
+                    }
+                }
+            }
         }
 
-        // Sorted by (z, y, wrap, x).
+        // mapbox::geometry::envelope(queryGeometry)
+        let (box_min, box_max) = envelope(&mut query_geometry.iter().map(|p| (p.x, p.y)));
+        let box_min = geometry::Point::new(box_min.0, box_min.1);
+        let box_max = geometry::Point::new(box_max.0, box_max.1);
+
+        // Sorted by (z, y, wrap, x). GL JS sorts the globe's query tiles by
+        // their copy on the main world, so there the wrap only breaks ties.
         let mut sorted_tiles: Vec<(&UnwrappedTileID, &OverscaledTileID)> = self.rendered_tiles.iter().collect();
         sorted_tiles.sort_by(|(a, _), (b, _)| {
+            if globe {
+                return (a.canonical.z, a.canonical.y, a.canonical.x, a.wrap).cmp(&(
+                    b.canonical.z,
+                    b.canonical.y,
+                    b.canonical.x,
+                    b.wrap,
+                ));
+            }
             (a.canonical.z, a.canonical.y, a.wrap, a.canonical.x).cmp(&(
                 b.canonical.z,
                 b.canonical.y,
@@ -510,6 +603,12 @@ impl TilePyramid {
         });
 
         let max_pitch_scale_factor = transform_state.max_pitch_scale_factor();
+
+        // The globe returns a feature once per tile, as GL JS does, though the
+        // tile is tested at three copies and can be rendered at two wraps:
+        // these are where this tile's features start in each layer's results.
+        let mut canonical_tile: Option<mln_tile_id::CanonicalTileID> = None;
+        let mut canonical_tile_start: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
 
         for (id, key) in sorted_tiles {
             let tile = self.tiles[key].as_ref();
@@ -521,33 +620,86 @@ impl TilePyramid {
                     / constants::TILE_SIZE_D
                     / f64::from(scale);
 
-            let tile_space_bounds_min = TileCoordinate::to_geometry_coordinate(id, &box_min);
-            if f64::from(tile_space_bounds_min.x) - query_padding >= f64::from(constants::EXTENT)
-                || f64::from(tile_space_bounds_min.y) - query_padding >= f64::from(constants::EXTENT)
-            {
-                continue;
+            if globe && canonical_tile != Some(id.canonical) {
+                canonical_tile = Some(id.canonical);
+                canonical_tile_start.clear();
+                for (layer_id, features) in &result {
+                    canonical_tile_start.insert(layer_id.clone(), features.len());
+                }
             }
 
-            let tile_space_bounds_max = TileCoordinate::to_geometry_coordinate(id, &box_max);
-            if f64::from(tile_space_bounds_max.x) + query_padding < 0.0
-                || f64::from(tile_space_bounds_max.y) + query_padding < 0.0
-            {
-                continue;
+            // The query geometry lies on the main world or, across the
+            // antimeridian, west of it, and its padding reaches past either
+            // side of it: a globe tile is tested at its copies west of, on and
+            // east of the main world. GL JS leaves out the east copy and misses
+            // features just east of the antimeridian under a query just west
+            // of it.
+            let globe_copies = [
+                UnwrappedTileID::with_wrap(-1, id.canonical),
+                UnwrappedTileID::with_wrap(0, id.canonical),
+                UnwrappedTileID::with_wrap(1, id.canonical),
+            ];
+            let copies: &[UnwrappedTileID] = if globe { &globe_copies } else { std::slice::from_ref(id) };
+            for copy in copies {
+                let tile_space_bounds_min = TileCoordinate::to_geometry_coordinate(copy, &box_min);
+                if f64::from(tile_space_bounds_min.x) - query_padding >= f64::from(constants::EXTENT)
+                    || f64::from(tile_space_bounds_min.y) - query_padding >= f64::from(constants::EXTENT)
+                {
+                    continue;
+                }
+
+                let tile_space_bounds_max = TileCoordinate::to_geometry_coordinate(copy, &box_max);
+                if f64::from(tile_space_bounds_max.x) + query_padding < 0.0
+                    || f64::from(tile_space_bounds_max.y) + query_padding < 0.0
+                {
+                    continue;
+                }
+
+                let tile_space_query_geometry: mln_tile_id::geometry_tile_data::GeometryCoordinates =
+                    query_geometry.iter().map(|c| TileCoordinate::to_geometry_coordinate(copy, c)).collect();
+
+                if !globe {
+                    tile.query_rendered_features(
+                        &mut result,
+                        &tile_space_query_geometry,
+                        transform_state,
+                        layers,
+                        options,
+                        global_state,
+                        proj_matrix,
+                        feature_state,
+                    );
+                    continue;
+                }
+
+                let mut found = crate::geometry::feature_index::QueryResults::new();
+                tile.query_rendered_features(
+                    &mut found,
+                    &tile_space_query_geometry,
+                    transform_state,
+                    layers,
+                    options,
+                    global_state,
+                    proj_matrix,
+                    feature_state,
+                );
+                for (layer_id, features) in found {
+                    let start = canonical_tile_start.get(&layer_id).copied().unwrap_or(0);
+                    let layer_result = result.entry(layer_id).or_default();
+                    let end = layer_result.len();
+                    for feature in features {
+                        // `other == feature` compares the GeoJSON feature
+                        // base: id, geometry and properties.
+                        if !layer_result[start..end].iter().any(|other| {
+                            other.id == feature.id
+                                && other.geometry == feature.geometry
+                                && other.properties == feature.properties
+                        }) {
+                            layer_result.push(feature);
+                        }
+                    }
+                }
             }
-
-            let tile_space_query_geometry: mln_tile_id::geometry_tile_data::GeometryCoordinates =
-                query_geometry.iter().map(|c| TileCoordinate::to_geometry_coordinate(id, c)).collect();
-
-            tile.query_rendered_features(
-                &mut result,
-                &tile_space_query_geometry,
-                transform_state,
-                layers,
-                options,
-                global_state,
-                proj_matrix,
-                feature_state,
-            );
         }
 
         result

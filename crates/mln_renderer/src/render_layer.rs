@@ -426,8 +426,9 @@ pub trait RenderLayer {
     }
 
     // query: `queryIntersectsFeature(queryGeometry, feature, zoom,
-    // transformState, pixelsToTileUnits, posMatrix, featureState)`; C++
-    // returns false unless a layer type overrides it.
+    // transformState, pixelsToTileUnits, projector, featureState)`, with the
+    // tile's projector in place of its matrix; C++ returns false unless a
+    // layer type overrides it.
     #[allow(clippy::too_many_arguments)]
     fn query_intersects_feature(
         &self,
@@ -436,7 +437,7 @@ pub trait RenderLayer {
         _zoom: f32,
         _transform_state: &TransformState,
         _pixels_to_tile_units: f32,
-        _pos_matrix: &mln_util::mat4::Mat4,
+        _projector: &mln_map_types::TileProjector<'_>,
         _feature_state: &mln_style::expression::expression::FeatureState,
     ) -> bool {
         false
