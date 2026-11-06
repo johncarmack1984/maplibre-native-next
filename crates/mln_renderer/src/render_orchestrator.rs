@@ -375,6 +375,7 @@ impl RenderOrchestrator {
             tile_lod_pitch_threshold: update_parameters.tile_lod_pitch_threshold,
             tile_lod_zoom_shift: update_parameters.tile_lod_zoom_shift,
             tile_lod_mode: update_parameters.tile_lod_mode,
+            subdivision_granularity: update_parameters.subdivision_granularity,
             global_state: self.global_state.clone(),
             is_update_synchronous: false,
             capture_rendered_features: update_parameters.capture_rendered_features,

@@ -7,6 +7,7 @@ use mln_style::transition_options::TransitionOptions;
 use mln_style::{image, layer, light, source};
 use mln_util::chrono::TimePoint;
 use mln_util::immutable::Immutable;
+use mln_util::subdivision_granularity::SubdivisionGranularitySetting;
 use std::sync::Arc;
 
 // Port-only Clone: a renderer on another thread than the map (a host's
@@ -47,4 +48,6 @@ pub struct UpdateParameters {
     pub tile_lod_pitch_threshold: f64,
     pub tile_lod_zoom_shift: f64,
     pub tile_lod_mode: TileLodMode,
+
+    pub subdivision_granularity: SubdivisionGranularitySetting,
 }

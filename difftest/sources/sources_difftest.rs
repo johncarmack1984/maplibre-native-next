@@ -37,6 +37,7 @@ use mln_util::geo::LatLng;
 use mln_util::identity::SimpleIdentity;
 use mln_util::immutable::Immutable;
 use mln_util::size::Size;
+use mln_util::subdivision_granularity::SubdivisionGranularitySetting;
 use std::any::Any;
 use std::cell::RefCell;
 use std::io::{BufRead, Write};
@@ -291,6 +292,7 @@ fn rust_tiles(
         tile_lod_pitch_threshold: (60.0 / 180.0) * std::f64::consts::PI,
         tile_lod_zoom_shift: 0.0,
         tile_lod_mode: TileLodMode::Default,
+        subdivision_granularity: SubdivisionGranularitySetting::none(),
         global_state: None,
         is_update_synchronous: false,
         capture_rendered_features: false,

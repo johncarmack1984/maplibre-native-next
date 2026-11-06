@@ -41,6 +41,7 @@ use mln_tile_id::OverscaledTileID;
 use mln_tile_id::geometry_tile_data::GeometryTileData;
 use mln_util::exception::{ExceptionPtr, RuntimeError};
 use mln_util::immutable::Immutable;
+use mln_util::subdivision_granularity::SubdivisionGranularitySetting;
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -144,6 +145,7 @@ pub struct GeometryTileWorker {
     available_images: Immutable<BTreeSet<String>>,
 
     show_collision_boxes: bool,
+    subdivision_granularity: SubdivisionGranularitySetting,
     first_load: bool,
 }
 
@@ -193,6 +195,7 @@ impl GeometryTileWorker {
             version_map: ImageVersionMap::new(),
             available_images: Arc::new(BTreeSet::new()),
             show_collision_boxes,
+            subdivision_granularity: SubdivisionGranularitySetting::none(),
             first_load: true,
         }
     }
@@ -276,6 +279,7 @@ impl GeometryTileWorker {
         layers: Vec<Immutable<dyn LayerProperties>>,
         global_state: Option<Arc<GlobalStateMap>>,
         available_images: Immutable<BTreeSet<String>>,
+        subdivision_granularity: SubdivisionGranularitySetting,
         correlation_id: u64,
     ) {
         self.guarded(|this| {
@@ -283,6 +287,7 @@ impl GeometryTileWorker {
             this.global_state = global_state;
             this.correlation_id = correlation_id;
             this.available_images = available_images;
+            this.subdivision_granularity = subdivision_granularity;
 
             match this.state {
                 State::Idle => {
@@ -556,6 +561,7 @@ impl GeometryTileWorker {
                 layer_type: leader_impl.get_type_info(),
                 global_state: self.global_state.clone(),
                 retain_features_by_id: self.capture_rendered_features,
+                subdivision_granularity: self.subdivision_granularity,
             };
 
             let Some(geometry_layer) = data.get_layer(&leader_impl.source_layer) else {

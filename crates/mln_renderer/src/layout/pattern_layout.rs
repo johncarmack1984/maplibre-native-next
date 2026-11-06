@@ -32,6 +32,7 @@ use mln_tile_id::CanonicalTileID;
 use mln_tile_id::geometry_tile_data::{GeometryCollection, GeometryTileFeature, GeometryTileLayer};
 use mln_util::exception::ExceptionPtr;
 use mln_util::immutable::Immutable;
+use mln_util::subdivision_granularity::SubdivisionGranularitySetting;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
@@ -91,6 +92,9 @@ pub trait PatternLayoutSpec: 'static {
         zoom: f32,
         overscaling: u32,
     ) -> Self::Bucket;
+    /// `bucket->setSubdivisionGranularity(value)` for the buckets that have
+    /// it (C++ checks with `if constexpr (requires ...)`).
+    fn set_subdivision_granularity(_bucket: &mut Self::Bucket, _value: &SubdivisionGranularitySetting) {}
 }
 
 /// `PatternLayout<...>`.
@@ -103,6 +107,7 @@ pub struct PatternLayout<S: PatternLayoutSpec> {
 
     pub zoom: f32,
     pub overscaling: u32,
+    pub subdivision_granularity: SubdivisionGranularitySetting,
     pub source_layer_id: String,
     pub has_pattern: bool,
     pub retain_features_by_id: bool,
@@ -235,6 +240,7 @@ impl<S: PatternLayoutSpec> PatternLayout<S> {
             layout,
             zoom,
             overscaling,
+            subdivision_granularity: parameters.subdivision_granularity,
             source_layer_id,
             has_pattern,
             retain_features_by_id: parameters.retain_features_by_id,
@@ -279,6 +285,7 @@ impl<S: PatternLayoutSpec> PatternLayout<S> {
         canonical: &CanonicalTileID,
     ) -> Result<(), ExceptionPtr> {
         let mut bucket = S::create_bucket(&self.layout, &self.layer_properties_map, self.zoom, self.overscaling);
+        S::set_subdivision_granularity(&mut bucket, &self.subdivision_granularity);
         bucket.set_retain_features_by_id(self.retain_features_by_id);
         bucket.reserve_features(self.features.len());
 
@@ -362,6 +369,9 @@ impl PatternLayoutSpec for FillLayoutSpec {
     ) -> FillBucket {
         FillBucket::new(layout, layer_properties_map, zoom, overscaling)
     }
+    fn set_subdivision_granularity(bucket: &mut FillBucket, value: &SubdivisionGranularitySetting) {
+        bucket.set_subdivision_granularity(value);
+    }
 }
 
 /// `PatternLayout<LineBucket, LineLayerProperties, LinePattern,
@@ -400,6 +410,9 @@ impl PatternLayoutSpec for LineLayoutSpec {
         overscaling: u32,
     ) -> LineBucket {
         LineBucket::new(layout.clone(), layer_properties_map, zoom, overscaling)
+    }
+    fn set_subdivision_granularity(bucket: &mut LineBucket, value: &SubdivisionGranularitySetting) {
+        bucket.set_subdivision_granularity(value);
     }
 }
 

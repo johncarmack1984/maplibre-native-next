@@ -7,6 +7,7 @@ use crate::renderer::property_evaluation_parameters::PropertyEvaluationParameter
 use crate::renderer::property_evaluator::PropertyEvaluator;
 use mln_style_types::{ProjectionDefinition, ProjectionType};
 use mln_util::interpolate::interpolate;
+use mln_util::subdivision_granularity::SubdivisionGranularitySetting;
 
 /// `std::clamp(x, 0.0, 1.0)`: `x < lo ? lo : hi < x ? hi : x` (NaN and -0.0
 /// pass through).
@@ -27,6 +28,20 @@ pub struct Impl {
 }
 
 impl Impl {
+    /// How finely tiles are subdivided for this projection, for the life of
+    /// the style: anything that can render a globe at some zoom gets the
+    /// globe granularity, so the Mercator hand-off at high zoom reuses the
+    /// same tiles.
+    pub fn get_subdivision_granularity(&self) -> SubdivisionGranularitySetting {
+        if self.type_.is_undefined()
+            || (self.type_.is_constant()
+                && *self.type_.as_constant() == ProjectionDefinition::new(ProjectionType::Mercator))
+        {
+            return SubdivisionGranularitySetting::none();
+        }
+        SubdivisionGranularitySetting::globe()
+    }
+
     /// The definition at a zoom level; `mercator` when the style does not
     /// set one.
     pub fn evaluate(&self, zoom: f32) -> ProjectionDefinition {
