@@ -28,6 +28,7 @@ use crate::render_pass::RenderPass;
 use crate::render_tree::RenderTree;
 use crate::update_parameters::UpdateParameters;
 use mln_gfx::index_vector::IndexVectorBase;
+use mln_gfx::projection_variant::ProjectionVariant;
 use mln_gfx::shader_group::{ShaderGroupPtr, StringIDSetsPair};
 use mln_gfx::shaders::shader_defines::*;
 use mln_gfx::vertex_attribute::VertexAttributeArray;
@@ -495,7 +496,9 @@ impl RenderSymbolLayer {
             let Some(group) = group else {
                 return;
             };
-            let Some(shader) = group.get_or_create_shader(context, &Default::default(), "") else {
+            let Some(shader) =
+                group.get_or_create_shader(context, &Default::default(), self.base.projection_variant, "")
+            else {
                 return;
             };
             collision_builder.set_drawable_name(format!("{layer_collision_prefix}{suffix}{name}"));
@@ -837,6 +840,16 @@ impl RenderLayer for RenderSymbolLayer {
 
         let layout = &impl_cast(&self.base.base_impl).layout;
         let sort_features_by_key = !layout.get::<SymbolSortKey>().is_undefined();
+        // Screen-space symbols are drawn over the view, not projected onto
+        // the map.
+        let screen_space_prop = layout.get::<SymbolScreenSpace>();
+        let is_screen_space = if screen_space_prop.is_constant() {
+            *screen_space_prop.as_constant()
+        } else {
+            SymbolScreenSpace::default_value()
+        };
+        let symbol_projection_variant =
+            if is_screen_space { ProjectionVariant::Mercator } else { self.base.projection_variant };
         let is_offset = !layout.get::<IconOffset>().is_undefined();
 
         let current_zoom = state.get_zoom() as f32;
@@ -1111,9 +1124,12 @@ impl RenderLayer for RenderSymbolLayer {
                     builder
                 });
 
-                let Some(shader) =
-                    shader_group.get_or_create_shader(context, &properties_as_uniforms, POS_OFFSET_ATTRIB_NAME)
-                else {
+                let Some(shader) = shader_group.get_or_create_shader(
+                    context,
+                    &properties_as_uniforms,
+                    symbol_projection_variant,
+                    POS_OFFSET_ATTRIB_NAME,
+                ) else {
                     return;
                 };
                 builder.set_shader(Some(shader));

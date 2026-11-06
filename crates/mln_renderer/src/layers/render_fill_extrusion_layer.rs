@@ -292,7 +292,12 @@ impl RenderLayer for RenderFillExtrusionLayer {
                 read_data_driven_paint_property(&mut attrs, &b.fill_extrusion_pattern, buffer, &shared, &["a_pattern_to", "a_pattern_from"], evaluated.get::<FillExtrusionPattern>().is_constant(), pau, &mut id);
             }
 
-            let Some(shader) = shader_group.get_or_create_shader(context, &properties_as_uniforms, "a_pos") else {
+            let Some(shader) = shader_group.get_or_create_shader(
+                context,
+                &properties_as_uniforms,
+                self.base.projection_variant,
+                "a_pos",
+            ) else {
                 continue;
             };
 

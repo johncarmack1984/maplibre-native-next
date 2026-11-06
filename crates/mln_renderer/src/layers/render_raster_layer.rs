@@ -353,7 +353,7 @@ impl RenderLayer for RenderRasterLayer {
         let render_pass = RenderPass::Translucent;
 
         if self.raster_shader.is_none() {
-            self.raster_shader = context.get_generic_shader(shaders, "RasterShader");
+            self.raster_shader = context.get_generic_shader(shaders, "RasterShader", self.base.projection_variant);
             if self.raster_shader.is_none() {
                 return;
             }

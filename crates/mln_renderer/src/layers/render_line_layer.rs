@@ -590,8 +590,12 @@ impl RenderLayer for RenderLineLayer {
                 let Some(group) = self.line_gradient_sdf_shader_group.clone() else {
                     continue;
                 };
-                let Some(shader) = group.get_or_create_shader(context, &properties_as_uniforms, POS_NORMAL_ATTRIB_NAME)
-                else {
+                let Some(shader) = group.get_or_create_shader(
+                    context,
+                    &properties_as_uniforms,
+                    self.base.projection_variant,
+                    POS_NORMAL_ATTRIB_NAME,
+                ) else {
                     continue;
                 };
 
@@ -619,8 +623,12 @@ impl RenderLayer for RenderLineLayer {
                 let Some(group) = self.line_sdf_shader_group.clone() else {
                     continue;
                 };
-                let Some(shader) = group.get_or_create_shader(context, &properties_as_uniforms, POS_NORMAL_ATTRIB_NAME)
-                else {
+                let Some(shader) = group.get_or_create_shader(
+                    context,
+                    &properties_as_uniforms,
+                    self.base.projection_variant,
+                    POS_NORMAL_ATTRIB_NAME,
+                ) else {
                     continue;
                 };
 
@@ -642,8 +650,12 @@ impl RenderLayer for RenderLineLayer {
                 let Some(group) = self.line_pattern_shader_group.clone() else {
                     continue;
                 };
-                let Some(shader) = group.get_or_create_shader(context, &properties_as_uniforms, POS_NORMAL_ATTRIB_NAME)
-                else {
+                let Some(shader) = group.get_or_create_shader(
+                    context,
+                    &properties_as_uniforms,
+                    self.base.projection_variant,
+                    POS_NORMAL_ATTRIB_NAME,
+                ) else {
                     continue;
                 };
 
@@ -683,8 +695,12 @@ impl RenderLayer for RenderLineLayer {
                 let Some(group) = self.line_gradient_shader_group.clone() else {
                     continue;
                 };
-                let Some(shader) = group.get_or_create_shader(context, &properties_as_uniforms, POS_NORMAL_ATTRIB_NAME)
-                else {
+                let Some(shader) = group.get_or_create_shader(
+                    context,
+                    &properties_as_uniforms,
+                    self.base.projection_variant,
+                    POS_NORMAL_ATTRIB_NAME,
+                ) else {
                     continue;
                 };
 
@@ -712,8 +728,12 @@ impl RenderLayer for RenderLineLayer {
                 let Some(group) = self.line_shader_group.clone() else {
                     continue;
                 };
-                let Some(shader) = group.get_or_create_shader(context, &properties_as_uniforms, POS_NORMAL_ATTRIB_NAME)
-                else {
+                let Some(shader) = group.get_or_create_shader(
+                    context,
+                    &properties_as_uniforms,
+                    self.base.projection_variant,
+                    POS_NORMAL_ATTRIB_NAME,
+                ) else {
                     continue;
                 };
 

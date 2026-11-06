@@ -361,7 +361,8 @@ impl RenderLayer for RenderColorReliefLayer {
         let layer_tweaker = self.base.layer_tweaker.clone();
 
         if self.color_relief_shader.is_none() {
-            self.color_relief_shader = context.get_generic_shader(shaders, COLOR_RELIEF_SHADER_GROUP_NAME);
+            self.color_relief_shader =
+                context.get_generic_shader(shaders, COLOR_RELIEF_SHADER_GROUP_NAME, self.base.projection_variant);
         }
         let Some(color_relief_shader) = self.color_relief_shader.clone() else {
             Log::error(Event::Render, "ColorRelief shader failed to load");
