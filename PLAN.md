@@ -32,10 +32,11 @@ port, not a redesign:
 
 ## 1. Build
 
-- **Bazel only** (rules_rust 0.74, Rust edition 2024). `MODULE.bazel` depends on the C++ repo as the `maplibre` module through `local_path_override(path = "../maplibre-native")`, so tests see uncommitted C++ changes. The reference checkout is the `maplibre-native-next-support-globe` branch of `johncarmack1984/maplibre-native` (CI pins its tip, currently `7ea2826156200c9cd7e65aeaf9eb480f1adf2c02`): the globe branch of maplibre/maplibre-native#4533 (`phased/12h`) with the `maplibre-native-next-support` branch of `louwers/maplibre-native` merged in, which is upstream `maplibre/maplibre-native` commit `8e144d0eca082e8350335b2172a6dfdc939b9cef` plus the dependency changes below (and a `cc_static_library` load() that Bazel 9 needs).
-- Third-party crates are `crate.spec`s in `MODULE.bazel` (`@next_crates`).
-  Crates in this repo are plain `rust_library` targets, so adding one never
-  touches shared files.
+- **Bazel** builds and tests everything (rules_rust 0.74, Rust edition 2024). The root `Cargo.toml` builds the same libraries for the crates.io release (RELEASING.md), as the `mln-rs-*` packages behind `mln-rs`, and runs their tests (`cargo test --workspace`; not the difftests or the tools' suites). `MODULE.bazel` depends on the C++ repo as the `maplibre` module through `local_path_override(path = "../maplibre-native")`, so tests see uncommitted C++ changes. The reference checkout is the `maplibre-native-next-support-globe` branch of `johncarmack1984/maplibre-native` (CI pins its tip, currently `7ea2826156200c9cd7e65aeaf9eb480f1adf2c02`): the globe branch of maplibre/maplibre-native#4533 (`phased/12h`) with the `maplibre-native-next-support` branch of `louwers/maplibre-native` merged in, which is upstream `maplibre/maplibre-native` commit `8e144d0eca082e8350335b2172a6dfdc939b9cef` plus the dependency changes below (and a `cc_static_library` load() that Bazel 9 needs).
+- Third-party crates are `crate.spec`s in `MODULE.bazel` (`@next_crates`),
+  and again in the root `Cargo.toml`. Crates in this repo are `rust_library`
+  targets with a `Cargo.toml` next to them; a new one is also listed in the
+  root `Cargo.toml` (RELEASING.md, "Adding a library").
 - The C++ core is never linked into the port. Only `//difftest/...` links
   `@maplibre//:mbgl-core`, as the reference implementation.
 - On NixOS everything runs through `scripts/bazel` (the C++ repo's `#linux`

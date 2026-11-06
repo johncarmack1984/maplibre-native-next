@@ -1,0 +1,23 @@
+[package]
+name = "mln-rs-kdbush"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+include.workspace = true
+# The [[test]]s below are the BUILD.bazel rust_tests; tests/ also holds
+# their modules.
+autotests = false
+
+[lib]
+name = "kdbush"
+# Bazel never runs doctests.
+doctest = false
+
+[dependencies]
+libstdcxx.workspace = true
+
+[[test]]
+name = "kdbush_source_test"
+path = "tests/kdbush.rs"

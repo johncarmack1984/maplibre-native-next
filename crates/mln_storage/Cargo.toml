@@ -1,0 +1,44 @@
+[package]
+name = "mln-rs-storage"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+include.workspace = true
+# The [[test]]s below are the BUILD.bazel rust_tests; tests/ also holds
+# their modules.
+autotests = false
+
+[lib]
+name = "mln_storage"
+# Bazel never runs doctests.
+doctest = false
+
+[dependencies]
+geojson.workspace = true
+maplibre_native_base.workspace = true
+mln_actor.workspace = true
+mln_platform_default_image.workspace = true
+mln_util.workspace = true
+pmtiles.workspace = true
+rapidjson.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+
+# ureq's TLS (rustls, ring) doesn't build for Emscripten, where the
+# storage fetches through the browser instead.
+[target.'cfg(not(target_os = "emscripten"))'.dependencies]
+ureq.workspace = true
+
+[[test]]
+name = "gtest_http_timeout"
+path = "tests/gtest_http_timeout.rs"
+
+[[test]]
+name = "sync_file_source_test"
+path = "tests/sync_file_source.rs"
+
+[dev-dependencies]
+mln_map = { package = "mln-rs-map", path = "../mln_map" }
+mln_platform_default = { package = "mln-rs-platform-default", path = "../mln_platform_default" }

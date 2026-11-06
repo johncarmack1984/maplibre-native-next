@@ -1,0 +1,18 @@
+[package]
+name = "mln-rs-conversion"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+include.workspace = true
+
+[lib]
+name = "mln_conversion"
+# Bazel never runs doctests.
+doctest = false
+
+[dependencies]
+geojson.workspace = true
+maplibre_native_base.workspace = true
+serde_json.workspace = true

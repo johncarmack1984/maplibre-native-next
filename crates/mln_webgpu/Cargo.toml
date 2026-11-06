@@ -1,0 +1,57 @@
+[package]
+name = "mln-rs-webgpu"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+include.workspace = true
+# The [[test]]s below are the BUILD.bazel rust_tests; tests/ also holds
+# their modules.
+autotests = false
+
+[lib]
+name = "mln_webgpu"
+# Bazel never runs doctests.
+doctest = false
+
+[dependencies]
+bytemuck.workspace = true
+mln_gfx.workspace = true
+mln_tile_id.workspace = true
+mln_util.workspace = true
+mln_wgpu_webgpu_h.workspace = true
+pollster.workspace = true
+
+[target.'cfg(not(target_os = "emscripten"))'.dependencies]
+wgpu = { workspace = true, features = ["default"] }
+
+# In the browser the port renders through the custom backend over
+# webgpu.h (mln_wgpu_webgpu_h); wgpu's GLES backend would link EGL 1.5
+# functions that Emscripten doesn't provide.
+[target.'cfg(target_os = "emscripten")'.dependencies]
+wgpu = { workspace = true, features = ["parking_lot", "std", "wgsl"] }
+
+[[test]]
+name = "smoke_test"
+path = "tests/smoke_test.rs"
+
+[[test]]
+name = "background_test"
+path = "tests/background_test.rs"
+
+[[test]]
+name = "shader_group_preprocessor_test"
+path = "tests/shader_group_preprocessor.rs"
+
+[[test]]
+name = "wgsl_compile_test"
+path = "tests/wgsl_compile_test.rs"
+
+[[test]]
+name = "gtest_offscreen_texture"
+path = "tests/gtest_offscreen_texture.rs"
+
+[dev-dependencies]
+mln_platform_default_image = { package = "mln-rs-platform-default-image", path = "../mln_platform_default_image" }
+pixelmatch = { package = "mln-rs-pixelmatch", path = "../../vendor/pixelmatch" }

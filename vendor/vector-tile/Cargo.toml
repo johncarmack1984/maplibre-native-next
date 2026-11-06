@@ -1,0 +1,17 @@
+[package]
+name = "mln-rs-vector-tile"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+include.workspace = true
+
+[lib]
+name = "vector_tile"
+# Bazel never runs doctests.
+doctest = false
+
+[dependencies]
+maplibre_native_base.workspace = true
+protozero.workspace = true
