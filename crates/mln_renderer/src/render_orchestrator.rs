@@ -650,7 +650,12 @@ impl RenderOrchestrator {
                 // Handle layers without source.
                 let is_first_source = source_index == 0;
                 if layer_is_visible && zoom_fits_layer && is_first_source {
-                    if self.background_layer_as_color && Arc::ptr_eq(&base_impl, &self.layer_impls[0]) {
+                    // On the globe the background is a sphere mesh, not the
+                    // backdrop, so it stays a layer.
+                    if self.background_layer_as_color
+                        && !update_parameters.transform_state.is_globe_rendering()
+                        && Arc::ptr_eq(&base_impl, &self.layer_impls[0])
+                    {
                         let solid_background = layer.get_solid_background();
                         if let Some(solid_background) = solid_background {
                             render_tree_parameters.background_color = solid_background;

@@ -10,6 +10,7 @@ GLFW_DEPS = [
     "//crates/mln_renderer",
     "//crates/mln_storage",
     "//crates/mln_style",
+    "//crates/mln_style_types",
     "//crates/mln_util",
     "//crates/mln_webgpu",
     "//vendor/maplibre-native-base:maplibre_native_base",

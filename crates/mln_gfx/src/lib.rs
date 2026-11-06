@@ -27,6 +27,7 @@ pub mod drawable;
 pub mod drawable_builder;
 pub mod drawable_tweaker;
 pub mod gfx_types;
+pub mod globe_clip_mask;
 pub mod headless_backend;
 pub mod index_vector;
 pub mod offscreen_texture;
