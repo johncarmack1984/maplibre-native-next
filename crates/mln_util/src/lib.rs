@@ -52,3 +52,4 @@ pub mod intersection_tests;
 pub mod lru_cache;
 pub mod string_indexer;
 pub mod tiny_unordered_map;
+pub mod subdivision_granularity;
