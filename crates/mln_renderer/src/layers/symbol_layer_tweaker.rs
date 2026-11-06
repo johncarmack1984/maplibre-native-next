@@ -22,6 +22,7 @@ use crate::buckets::symbol_bucket::SymbolBucket;
 use crate::layer_tweaker::{LayerTweaker, LayerTweakerBase, get_projection_data, to_projection_ubo};
 use crate::layout::symbol_projection::{get_gl_coord_matrix, get_label_plane_matrix};
 use crate::paint_parameters::PaintParameters;
+use crate::render_tile::RenderTile;
 
 pub struct SymbolLayerTweaker {
     base: LayerTweakerBase,
@@ -170,21 +171,25 @@ impl LayerTweaker for SymbolLayerTweaker {
             } else {
                 const NEAR_CLIPPED: bool = false;
                 const IN_VIEWPORT_PIXEL_UNITS: bool = false;
-                // TODO(port): globe phase 12be takes the translation out of
-                // the matrices, and the shader adds it to point anchors and
-                // placement to the positions it lays out. Until placement
-                // does (with the globe's symbol placement), the matrix keeps
-                // it, as on main, and the shader's `translation` is 0.
                 get_projection_data(
                     &tile_id,
                     parameters,
-                    translate,
+                    &[0.0, 0.0],
                     anchor,
                     NEAR_CLIPPED,
                     IN_VIEWPORT_PIXEL_UNITS,
                     drawable,
                     false,
                 )
+            };
+            // The translation stays out of the matrices on every projection:
+            // the shader adds it to point anchors, and placement to the
+            // positions it lays out (variable anchors, line labels), so it
+            // applies once.
+            let tile_translation: [f32; 2] = if is_screen_space {
+                [0.0, 0.0]
+            } else {
+                RenderTile::tile_unit_translation(&tile_id, translate, anchor, state)
             };
             projection.translate = [0.0, 0.0];
             let matrix = projection.fallback_matrix;
@@ -265,7 +270,7 @@ impl LayerTweaker for SymbolLayerTweaker {
                 is_along_line: along_line as i32,
                 is_variable_anchor: has_variable_placement as i32,
                 pitched_scale,
-                translation: [0.0, 0.0],
+                translation: tile_translation,
                 pad1: 0.0,
                 pad2: 0.0,
             };

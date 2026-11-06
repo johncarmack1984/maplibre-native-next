@@ -51,7 +51,8 @@ use crate::layer_tweaker::{LayerTweakerPtr, layer_tweaker_slot};
 use crate::paint_parameters::PaintParameters;
 use crate::paint_property_binder::read_data_driven_paint_property;
 use crate::render_layer::{
-    LayerPrepareParameters, RenderLayer, RenderLayerBase, activate_layer_group, change_layer_index,
+    BucketPlacementData, LayerPrepareParameters, RenderLayer, RenderLayerBase, SymbolTranslate, activate_layer_group,
+    change_layer_index,
 };
 use crate::render_pass::RenderPass;
 use crate::render_tree::RenderTree;
@@ -161,6 +162,7 @@ pub fn text_property_values(
 /// propertiesAsUniforms)`.
 fn update_tile_attributes(
     buffer: &Buffer,
+    layer_id: &str,
     is_text: bool,
     paint_props: &PaintProperties,
     evaluated: &SymbolPaintProperties::PossiblyEvaluated,
@@ -168,7 +170,7 @@ fn update_tile_attributes(
     properties_as_uniforms: &mut StringIDSetsPair,
 ) {
     set_binder_attributes(is_text, paint_props, evaluated, attribs, properties_as_uniforms);
-    set_static_and_dynamic_attributes(buffer, attribs);
+    set_static_and_dynamic_attributes(buffer, layer_id, attribs);
 }
 
 /// The data-driven paint property half of `updateTileAttributes`.
@@ -293,9 +295,9 @@ fn set_binder_attributes(
 }
 
 /// The vertex-buffer half of `updateTileAttributes`.
-fn set_static_and_dynamic_attributes(buffer: &Buffer, attribs: &mut VertexAttributeArray) {
+fn set_static_and_dynamic_attributes(buffer: &Buffer, layer_id: &str, attribs: &mut VertexAttributeArray) {
     set_layout_attributes(buffer, attribs);
-    set_projected_pos_attribute(buffer, attribs);
+    set_projected_pos_attribute(buffer, layer_id, attribs);
     set_fade_opacity_attribute(buffer, attribs);
 }
 
@@ -314,11 +316,12 @@ fn set_layout_attributes(buffer: &Buffer, attribs: &mut VertexAttributeArray) {
     }
 }
 
-/// `updateTileAttributes`: the dynamic layout vertices (placement).
-fn set_projected_pos_attribute(buffer: &Buffer, attribs: &mut VertexAttributeArray) {
+/// `updateTileAttributes`: the dynamic layout vertices (placement), the
+/// layer's own when it has them.
+fn set_projected_pos_attribute(buffer: &Buffer, layer_id: &str, attribs: &mut VertexAttributeArray) {
     if let Some(attr) = attribs.set(ID_SYMBOL_PROJECTED_POS_ATTRIBUTE, -1, AttributeDataType::Invalid, 0) {
         attr.set_shared_raw_data(
-            Some(shared_vertices(&buffer.dynamic_attribute_data)),
+            Some(shared_vertices(buffer.dynamic_attribute_data_for(layer_id))),
             0,
             0,
             std::mem::size_of::<crate::buckets::symbol_bucket::SymbolDynamicLayoutVertex>() as u32,
@@ -394,7 +397,7 @@ fn update_tile_drawable(
             refreshed_attributes.push(key);
             let mut attrs = attrs.borrow_mut();
             if refresh.dynamic {
-                set_projected_pos_attribute(buffer, &mut attrs);
+                set_projected_pos_attribute(buffer, layer_id, &mut attrs);
             }
             if refresh.opacity {
                 set_fade_opacity_attribute(buffer, &mut attrs);
@@ -797,6 +800,17 @@ impl RenderLayer for RenderSymbolLayer {
         }
 
         self.base.placement_data.clear();
+        self.base.follower_data.clear();
+
+        let evaluated = &get_evaluated::<SymbolLayerProperties>(&self.base.evaluated_properties);
+        let text_translate = SymbolTranslate {
+            offset: *evaluated.get::<TextTranslate>(),
+            anchor: *evaluated.get::<TextTranslateAnchor>(),
+        };
+        let icon_translate = SymbolTranslate {
+            offset: *evaluated.get::<IconTranslate>(),
+            anchor: *evaluated.get::<IconTranslateAnchor>(),
+        };
 
         let Some(render_tiles) = self.base.render_tiles.clone() else {
             return;
@@ -809,33 +823,47 @@ impl RenderLayer for RenderSymbolLayer {
             let Some(bucket) = (**bucket_ptr).downcast_ref::<SymbolBucket>() else {
                 continue;
             };
-            if bucket.bucket_leader_id != self.get_id() {
-                continue;
-            }
-            // Only place this layer if it's the "group leader" for the bucket
             let Some(tile_index) = owner.iter().position(|t| std::ptr::eq(t, render_tile)) else {
                 continue;
             };
+            if bucket.bucket_leader_id != self.get_id() {
+                self.base.follower_data.push(BucketPlacementData {
+                    bucket: bucket_ptr.clone(),
+                    tile_owner: owner.clone(),
+                    tile_index,
+                    feature_index: None,
+                    source_id: self.base.base_impl.source.clone(),
+                    sort_key_range: None,
+                    text_translate,
+                    icon_translate,
+                });
+                continue;
+            }
+            // Only place this layer if it's the "group leader" for the bucket
             let feature_index = render_tile.get_feature_index();
 
             if bucket.sort_key_ranges.is_empty() {
-                self.base.placement_data.push(crate::render_layer::BucketPlacementData {
+                self.base.placement_data.push(BucketPlacementData {
                     bucket: bucket_ptr.clone(),
                     tile_owner: owner.clone(),
                     tile_index,
                     feature_index,
                     source_id: self.base.base_impl.source.clone(),
                     sort_key_range: None,
+                    text_translate,
+                    icon_translate,
                 });
             } else {
                 for sort_key_range in &bucket.sort_key_ranges {
-                    let layer_data = crate::render_layer::BucketPlacementData {
+                    let layer_data = BucketPlacementData {
                         bucket: bucket_ptr.clone(),
                         tile_owner: owner.clone(),
                         tile_index,
                         feature_index: feature_index.clone(),
                         source_id: self.base.base_impl.source.clone(),
                         sort_key_range: Some(*sort_key_range),
+                        text_translate,
+                        icon_translate,
                     };
                     // std::upper_bound by sort key
                     let sort_position = self.base.placement_data.partition_point(|lhs| {
@@ -857,6 +885,7 @@ impl RenderLayer for RenderSymbolLayer {
         _render_tree: &RenderTree,
         changes: &mut UniqueChangeRequestVec,
     ) {
+        self.update_projection_variant(state);
         let passes = self.base.passes;
         let Some(render_tiles) = self.base.render_tiles.clone().filter(|t| !t.is_empty()) else {
             self.remove_all_drawables();
@@ -1149,6 +1178,7 @@ impl RenderLayer for RenderSymbolLayer {
             let vertex_attribs = context.create_vertex_attribute_array();
             update_tile_attributes(
                 buffer,
+                self.get_id(),
                 is_text,
                 &bucket_paint_properties,
                 evaluated,
