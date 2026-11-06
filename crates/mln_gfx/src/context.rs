@@ -21,6 +21,7 @@ use crate::context_observer::ContextObserver;
 use crate::depth_mode::DepthMode;
 use crate::drawable_builder::UniqueDrawableBuilder;
 use crate::offscreen_texture::OffscreenTexture;
+use crate::projection_variant::ProjectionVariant;
 use crate::render_pass::RenderPass;
 use crate::renderer::layer_group::LayerGroupBasePtr;
 use crate::rendering_stats::RenderingStats;
@@ -85,7 +86,12 @@ pub trait Context: Any {
     fn create_drawable_builder(&self, name: String) -> UniqueDrawableBuilder;
     fn create_uniform_buffer(&self, data: &[u8], persistent: bool, ssbo: bool) -> UniformBufferPtr;
     fn create_layer_uniform_buffer_array(&self) -> UniqueUniformBufferArray;
-    fn get_generic_shader(&self, registry: &ShaderRegistry, name: &str) -> Option<ShaderProgramBasePtr>;
+    fn get_generic_shader(
+        &self,
+        registry: &ShaderRegistry,
+        name: &str,
+        variant: ProjectionVariant,
+    ) -> Option<ShaderProgramBasePtr>;
     fn create_tile_layer_group(
         &self,
         layer_index: i32,

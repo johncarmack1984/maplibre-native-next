@@ -52,7 +52,7 @@ use crate::buckets::symbol_bucket::{
 use crate::geometry::feature_index::{FeatureIndex, IndexedSubfeature};
 use crate::layout::symbol_instance::SymbolInstance;
 use crate::layout::symbol_projection::{
-    add_dynamic_attributes, evaluate_size_for_feature, get_label_plane_matrix, hide_glyphs, project,
+    add_dynamic_attributes, evaluate_size_for_feature, get_label_plane_matrix_with_pos_matrix, hide_glyphs, project,
     reproject_line_labels,
 };
 use crate::render_layer::{BucketPlacementData, RenderLayer, RenderLayerPtr};
@@ -313,7 +313,7 @@ impl PlacementContext {
         let pitch_icon_with_map = *layout.get::<IconPitchAlignment>() == AlignmentType::Map;
         let placement_type = *layout.get::<SymbolPlacement>();
 
-        let text_label_plane_matrix = get_label_plane_matrix(
+        let text_label_plane_matrix = get_label_plane_matrix_with_pos_matrix(
             &render_tile.matrix,
             pitch_text_with_map,
             rotate_text_with_map,
@@ -324,7 +324,7 @@ impl PlacementContext {
             if rotate_text_with_map == rotate_icon_with_map && pitch_text_with_map == pitch_icon_with_map {
                 text_label_plane_matrix
             } else {
-                get_label_plane_matrix(
+                get_label_plane_matrix_with_pos_matrix(
                     &render_tile.matrix,
                     pitch_icon_with_map,
                     rotate_icon_with_map,
@@ -1619,8 +1619,13 @@ impl Placement {
             let rotate_with_map = *layout.get::<TextRotationAlignment>() == AlignmentType::Map;
             let pitch_with_map = *layout.get::<TextPitchAlignment>() == AlignmentType::Map;
             let pixels_to_tile_units = tile.id.pixels_to_tile_units(1.0, state.get_zoom() as f32);
-            let label_plane_matrix =
-                get_label_plane_matrix(&tile.matrix, pitch_with_map, rotate_with_map, state, pixels_to_tile_units);
+            let label_plane_matrix = get_label_plane_matrix_with_pos_matrix(
+                &tile.matrix,
+                pitch_with_map,
+                rotate_with_map,
+                state,
+                pixels_to_tile_units,
+            );
             let mut placed_text_shifts: HashMap<usize, (usize, Point<f32>)> = HashMap::new();
 
             for i in 0..bs.text.placed_symbols.len() {

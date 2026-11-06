@@ -61,10 +61,76 @@ pub fn get_tile_skew_matrix(state: &TransformState) -> Mat4 {
     m
 }
 
-/// `getLabelPlaneMatrix(posMatrix, pitchWithMap, rotateWithMap, state,
-/// pixelsToTileUnits)`: a matrix for converting from tile units to the
-/// correct label coordinate space.
+/// `getLabelPlaneMatrix(pitchWithMap, rotateWithMap, state,
+/// pixelsToTileUnits)`: a matrix for converting to the correct label
+/// coordinate space, from tile units when pitched with the map and from clip
+/// space otherwise; the shaders apply the tile's projection themselves.
 pub fn get_label_plane_matrix(
+    pitch_with_map: bool,
+    rotate_with_map: bool,
+    state: &TransformState,
+    pixels_to_tile_units: f32,
+) -> Mat4 {
+    let mut m: Mat4 = [0.0; 16];
+    matrix::identity(&mut m);
+    if pitch_with_map {
+        let s = f64::from(1.0 / pixels_to_tile_units);
+        let a = m;
+        matrix::scale(&mut m, &a, s, s, 1.0);
+        if !rotate_with_map {
+            let skew = get_tile_skew_matrix(state);
+            let mut inverted = skew;
+            matrix::invert(&mut inverted, &skew);
+            let a = m;
+            matrix::multiply(&mut m, &a, &inverted);
+        }
+    } else {
+        let size = state.get_size();
+        let a = m;
+        matrix::scale(&mut m, &a, f64::from(size.width) / 2.0, -(f64::from(size.height) / 2.0), 1.0);
+        let a = m;
+        matrix::translate(&mut m, &a, 1.0, -1.0, 0.0);
+    }
+    m
+}
+
+/// `getGlCoordMatrix(pitchWithMap, rotateWithMap, state,
+/// pixelsToTileUnits)`: a matrix for converting from the correct label
+/// coordinate space back to tile units when pitched with the map, and to gl
+/// coords otherwise.
+pub fn get_gl_coord_matrix(
+    pitch_with_map: bool,
+    rotate_with_map: bool,
+    state: &TransformState,
+    pixels_to_tile_units: f32,
+) -> Mat4 {
+    let mut m: Mat4 = [0.0; 16];
+    matrix::identity(&mut m);
+    if pitch_with_map {
+        let s = f64::from(pixels_to_tile_units);
+        let a = m;
+        matrix::scale(&mut m, &a, s, s, 1.0);
+        if !rotate_with_map {
+            let a = m;
+            matrix::multiply(&mut m, &a, &get_tile_skew_matrix(state));
+        }
+    } else {
+        let size = state.get_size();
+        let a = m;
+        matrix::scale(&mut m, &a, 1.0, -1.0, 1.0);
+        let a = m;
+        matrix::translate(&mut m, &a, -1.0, -1.0, 0.0);
+        let a = m;
+        matrix::scale(&mut m, &a, 2.0 / f64::from(size.width), 2.0 / f64::from(size.height), 1.0);
+    }
+    m
+}
+
+/// Main's `getLabelPlaneMatrix(posMatrix, pitchWithMap, rotateWithMap,
+/// state, pixelsToTileUnits)`, which multiplies in the tile's matrix.
+/// TODO(port): placement and line labels lay out with it until they move to
+/// the globe's `LabelPlaneProjector` (globe phase 8).
+pub fn get_label_plane_matrix_with_pos_matrix(
     pos_matrix: &Mat4,
     pitch_with_map: bool,
     rotate_with_map: bool,
@@ -96,10 +162,10 @@ pub fn get_label_plane_matrix(
     m
 }
 
-/// `getGlCoordMatrix(posMatrix, pitchWithMap, rotateWithMap, state,
-/// pixelsToTileUnits)`: a matrix for converting from the correct label
-/// coordinate space to gl coords.
-pub fn get_gl_coord_matrix(
+/// Main's `getGlCoordMatrix(posMatrix, pitchWithMap, rotateWithMap, state,
+/// pixelsToTileUnits)`, which multiplies in the tile's matrix (see
+/// `get_label_plane_matrix_with_pos_matrix`).
+pub fn get_gl_coord_matrix_with_pos_matrix(
     pos_matrix: &Mat4,
     pitch_with_map: bool,
     rotate_with_map: bool,
@@ -619,10 +685,16 @@ pub fn reproject_line_labels(
 
     let pixels_to_tile_units = tile.id.pixels_to_tile_units(1.0, state.get_zoom() as f32);
 
-    let label_plane_matrix =
-        get_label_plane_matrix(pos_matrix, pitch_with_map, rotate_with_map, state, pixels_to_tile_units);
+    let label_plane_matrix = get_label_plane_matrix_with_pos_matrix(
+        pos_matrix,
+        pitch_with_map,
+        rotate_with_map,
+        state,
+        pixels_to_tile_units,
+    );
 
-    let gl_coord_matrix = get_gl_coord_matrix(pos_matrix, pitch_with_map, rotate_with_map, state, pixels_to_tile_units);
+    let gl_coord_matrix =
+        get_gl_coord_matrix_with_pos_matrix(pos_matrix, pitch_with_map, rotate_with_map, state, pixels_to_tile_units);
 
     dynamic_vertex_array.clear();
 

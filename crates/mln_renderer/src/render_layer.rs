@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use mln_gfx::projection_variant::ProjectionVariant;
 use mln_gfx::{Context, LayerGroupBasePtr, ShaderRegistry, UploadPass};
 use mln_map_types::TransformState;
 use mln_style::expression::Dependency;
@@ -113,6 +114,8 @@ pub struct RenderLayerBase {
     pub render_tile_ids: HashMap<OverscaledTileID, SimpleIdentity>,
     // symbols: `placementData`.
     pub placement_data: LayerPlacementData,
+    /// The projection variant this layer's drawables are built with.
+    pub projection_variant: ProjectionVariant,
     // TODO(port): sourceForState (feature state), hasRenderFailures.
 }
 
@@ -134,6 +137,7 @@ impl RenderLayerBase {
             render_tiles_owner: Rc::new(Vec::new()),
             render_tile_ids: HashMap::new(),
             placement_data: Vec::new(), // symbols
+            projection_variant: ProjectionVariant::Mercator,
         }
     }
 }

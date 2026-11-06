@@ -32,6 +32,7 @@ pub mod index_vector;
 pub mod offscreen_texture;
 pub mod paint_parameters;
 pub mod polyline_generator;
+pub mod projection_variant;
 pub mod render_pass;
 pub mod renderable;
 pub mod renderer;

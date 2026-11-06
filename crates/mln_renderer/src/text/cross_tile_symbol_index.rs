@@ -699,11 +699,7 @@ mod tests {
         let mut transform_state = TransformState::default();
         transform_state.set_size(Size { width: 512, height: 512 });
         transform_state.set_lat_lng_zoom(&LatLng::new(lat, lon).expect("valid LatLng"), zoom);
-        let mut pos_matrix: Mat4 = [0.0; 16];
-        transform_state.matrix_for(&mut pos_matrix, &tile_id.to_unwrapped());
-        let a = pos_matrix;
-        matrix::multiply(&mut pos_matrix, &transform_state.get_projection_matrix(), &a);
-        pos_matrix
+        transform_state.get_projection_data(&tile_id.to_unwrapped()).main_matrix
     }
 
     // gtest: CrossTileSymbolLayerIndex.offscreenSymbols

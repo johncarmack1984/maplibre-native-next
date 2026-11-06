@@ -20,9 +20,11 @@ use std::rc::{Rc, Weak};
 
 use mln_gfx::color_mode::ColorMode;
 use mln_gfx::context::{Context as GfxContext, ContextBase};
+use mln_gfx::cull_face_mode::CullFaceMode;
 use mln_gfx::depth_mode::DepthMode;
 use mln_gfx::drawable_builder::UniqueDrawableBuilder;
 use mln_gfx::gfx_types::{AttributeDataType, DrawModeType};
+use mln_gfx::projection_variant::ProjectionVariant;
 use mln_gfx::renderer::layer_group::LayerGroupBasePtr;
 use mln_gfx::rendering_stats::RenderingStats;
 use mln_gfx::shader_group::StringIDSetsPair;
@@ -195,7 +197,8 @@ impl Context {
             return Some(shader);
         }
         let group = shaders.get_shader_group("ClippingMaskProgram")?;
-        let shader = group.get_or_create_shader(self, &StringIDSetsPair::default(), "a_pos")?;
+        let shader =
+            group.get_or_create_shader(self, &StringIDSetsPair::default(), ProjectionVariant::Mercator, "a_pos")?;
         *self.clip_mask_shader.borrow_mut() = Some(Rc::downgrade(&shader));
         Some(shader)
     }
@@ -268,6 +271,7 @@ impl Context {
             &clip_mask_stencil_mode(),
             DrawModeType::Triangles,
             self.clip_mask_pipeline_hash.get(),
+            &CullFaceMode::disabled(),
         ) else {
             eprintln!("WebGPU: Failed to create clipping mask pipeline");
             return false;
@@ -410,9 +414,14 @@ impl GfxContext for Context {
     }
 
     /// Align with Metal - just get the shader from the registry, no caching.
-    fn get_generic_shader(&self, registry: &ShaderRegistry, name: &str) -> Option<ShaderProgramBasePtr> {
+    fn get_generic_shader(
+        &self,
+        registry: &ShaderRegistry,
+        name: &str,
+        variant: ProjectionVariant,
+    ) -> Option<ShaderProgramBasePtr> {
         let shader_group = registry.get_shader_group(name)?;
-        shader_group.get_or_create_shader(self, &StringIDSetsPair::default(), "a_pos")
+        shader_group.get_or_create_shader(self, &StringIDSetsPair::default(), variant, "a_pos")
     }
 
     fn create_tile_layer_group(

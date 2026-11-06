@@ -333,7 +333,12 @@ impl RenderLayer for RenderFillExtrusionLayer {
                 );
             }
 
-            let Some(shader) = shader_group.get_or_create_shader(context, &properties_as_uniforms, "a_pos") else {
+            let Some(shader) = shader_group.get_or_create_shader(
+                context,
+                &properties_as_uniforms,
+                self.base.projection_variant,
+                "a_pos",
+            ) else {
                 continue;
             };
 
