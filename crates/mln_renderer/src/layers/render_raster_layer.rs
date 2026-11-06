@@ -37,10 +37,11 @@ use mln_style::layers::raster_layer_impl::Impl as RasterLayerImpl;
 use mln_style::layers::raster_layer_properties::*;
 use mln_style::{PropertyEvaluationParameters, TransitionParameters, layer};
 use mln_style_types::RasterResamplingType;
+use mln_tile_id::OverscaledTileID;
 use mln_util::identity::SimpleIdentity;
 use mln_util::immutable::Immutable;
 
-use super::raster_layer_tweaker::{ImageDrawableData, RasterLayerTweaker};
+use super::raster_layer_tweaker::RasterLayerTweaker;
 use super::{TileDrawables, drawable_has_layer_tweaker, shared_vertices};
 use crate::buckets::raster_bucket::{RasterBucket, RasterLayoutVertex};
 use crate::change_request::{ChangeRequest, UniqueChangeRequestVec};
@@ -135,9 +136,9 @@ impl RenderRasterLayer {
 }
 
 impl RenderRasterLayer {
-    /// The `imageData` branch of `update`: one drawable per matrix, rebuilt
-    /// every frame (C++: "TODO: Can we avoid rebuilding drawables each time
-    /// in this case as well?").
+    /// The `imageData` branch of `update`: one drawable per tile the image
+    /// is drawn in, rebuilt every frame (C++: "TODO: Can we avoid rebuilding
+    /// drawables each time in this case as well?").
     fn update_image(
         &mut self,
         context: &dyn Context,
@@ -177,9 +178,9 @@ impl RenderRasterLayer {
         }
         let image_layer_group = self.image_layer_group.clone().expect("image layer group");
 
-        // Create a drawable for each transformation
+        // Create a drawable for each tile the image is drawn in
         // TODO: Share textures
-        for matrix in &image_data.matrices {
+        for tile_id in &image_data.tile_ids {
             let mut builder = context.create_drawable_builder("raster".to_owned());
             builder.set_shader(raster_shader.clone());
             builder.set_render_pass(RenderPass::Translucent);
@@ -211,7 +212,7 @@ impl RenderRasterLayer {
                 continue;
             };
             for mut drawable in builder.clear_drawables() {
-                drawable.set_data(Some(Box::new(ImageDrawableData { matrix: *matrix })));
+                drawable.set_tile_id(OverscaledTileID::new(tile_id.canonical.z, tile_id.wrap, tile_id.canonical));
                 drawable.set_layer_tweaker(layer_tweaker.as_ref().and_then(layer_tweaker_slot));
                 layer_group.add_drawable(drawable);
                 self.base.stats.drawables_added += 1;
