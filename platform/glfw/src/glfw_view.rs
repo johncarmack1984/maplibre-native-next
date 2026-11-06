@@ -31,6 +31,9 @@ use mln_map::{
     AnimationOptions, BoundOptions, CameraOptions, Map, MapDebugOptions, MapObserver, NorthOrientation,
     RenderFrameStatus, TileLodMode,
 };
+use mln_style::PropertyValue;
+use mln_style::projection::Projection;
+use mln_style_types::{ProjectionDefinition, ProjectionType};
 use mln_util::chrono::Duration;
 use mln_util::geo::{LatLng, ScreenCoordinate};
 use mln_util::logging::{Event, Log};
@@ -167,6 +170,7 @@ const HELP: &str = "
 - Press `F6` to cycle through Tile LOD modes
 - Press `F7` to lower the zoom level without changing the camera
 - Press `F8` to higher the zoom level without changing the camera
+- Press `F9` to toggle between the globe and Mercator
 - Press `Esc` to quit
 
 (Not ported yet: annotations 1-0/K/L/W/M/C/Q, B, E, F, F1, G, H, I, J, R, T, Y.)
@@ -542,6 +546,18 @@ impl ViewState {
                 Key::F6 => self.cycle_tile_lod_profile(),
                 Key::F7 => self.tile_lod_zoom_shift(false),
                 Key::F8 => self.tile_lod_zoom_shift(true),
+                Key::F9 => self.with_map(|map| {
+                    let mut style = map.get_style_mut();
+                    let current = style.get_projection().get_type();
+                    let globe = current.is_constant() && current.as_constant().from == ProjectionType::Globe;
+                    let mut projection = Projection::new();
+                    projection.set_type(PropertyValue::Constant(ProjectionDefinition::new(if globe {
+                        ProjectionType::Mercator
+                    } else {
+                        ProjectionType::Globe
+                    })));
+                    style.set_projection(projection);
+                }),
                 Key::Q
                 | Key::C
                 | Key::B

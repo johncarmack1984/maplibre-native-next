@@ -14,6 +14,7 @@ use crate::command_encoder::CommandEncoder;
 use crate::context_observer::ContextObserver;
 use crate::depth_mode::DepthMode;
 use crate::drawable_builder::UniqueDrawableBuilder;
+use crate::globe_clip_mask::GlobeClipMask;
 use crate::offscreen_texture::OffscreenTexture;
 use crate::projection_variant::ProjectionVariant;
 use crate::render_pass::RenderPass;
@@ -26,6 +27,7 @@ use crate::texture2d::Texture2DPtr;
 use crate::types::TextureChannelDataType;
 use crate::uniform_buffer::{UniformBufferArray, UniformBufferPtr, UniqueUniformBufferArray};
 use crate::vertex_attribute::VertexAttributeArrayPtr;
+use mln_tile_id::CanonicalTileID;
 use mln_util::size::Size;
 use std::any::Any;
 use std::cell::{Ref, RefCell, RefMut};
@@ -128,6 +130,32 @@ pub trait Context: Any {
         _render_pass: &dyn RenderPass,
         _shaders: &ShaderRegistry,
         _tile_ubos: &[ClipUBO],
+    ) -> bool {
+        false
+    }
+
+    /// Drops the meshes and drawables kept for the globe's tile clipping
+    /// masks; a Mercator frame calls it. (C++ makes it pure virtual; here
+    /// backends without globe masks keep the empty default.)
+    fn release_globe_clip_masks(&self) {}
+
+    /// The globe's tile clipping masks, each drawn over the pole-capped mesh
+    /// of its tile, with a border and then without.
+    ///
+    /// C++: `webgpu::Context::renderGlobeTileClippingMasks(renderPass,
+    /// staticData, masks)`; on the trait for the reason
+    /// `render_tile_clipping_masks` is. C++ builds the meshes with
+    /// `rawGlobeTileMesh(tile, borders, SubdivisionGranularitySetting::globe().stencil)`,
+    /// which lives in mln_renderer, so the caller passes that call as
+    /// `mesh`, returning the mesh's raw `Short2` vertices and its indices; the
+    /// context still keeps one per zoom, pole row and border. Backends without
+    /// it return false.
+    fn render_globe_tile_clipping_masks(
+        &self,
+        _render_pass: &dyn RenderPass,
+        _shaders: &ShaderRegistry,
+        _masks: &[GlobeClipMask],
+        _mesh: &dyn Fn(&CanonicalTileID, bool) -> (Vec<u8>, Vec<u16>),
     ) -> bool {
         false
     }
