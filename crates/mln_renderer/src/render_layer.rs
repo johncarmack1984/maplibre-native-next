@@ -167,6 +167,12 @@ pub trait RenderLayer {
         false
     }
 
+    /// Returns true if the layer may draw depth-tested 3D geometry, which the
+    /// planet's depth hides behind the horizon.
+    fn needs_globe_depth(&self) -> bool {
+        self.is_3d()
+    }
+
     fn upload(&mut self, _upload_pass: &dyn UploadPass) {}
 
     fn render(&mut self, _parameters: &mut PaintParameters<'_>) {}

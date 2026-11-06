@@ -379,6 +379,26 @@ impl<'a> PaintParameters<'a> {
             pass: StencilOpType::Replace,
         }
     }
+
+    /// Give each drawable a 3D stencil mode of its own, clearing the stencil
+    /// buffer first if they would not all fit, so no value handed out before
+    /// the clear is drawn after it. Returns false, handing out none, when
+    /// there are more drawables than the buffer holds values: the caller then
+    /// takes each one's value with `stencil_mode_for_3d` as it draws it, so a
+    /// clear falls between two draws. (C++ takes the modes keyed by drawable;
+    /// see the gfx trait.)
+    pub fn stencil_modes_for_3d(&mut self, modes: &mut [StencilMode]) -> bool {
+        if modes.len() >= Self::MAX_STENCIL_VALUE as usize {
+            return false;
+        }
+        if self.next_stencil_id as usize + modes.len() > Self::MAX_STENCIL_VALUE as usize {
+            self.clear_stencil();
+        }
+        for mode in modes.iter_mut() {
+            *mode = self.stencil_mode_for_3d();
+        }
+        true
+    }
 }
 
 impl GfxPaintParameters for PaintParameters<'_> {
@@ -420,6 +440,10 @@ impl GfxPaintParameters for PaintParameters<'_> {
 
     fn stencil_mode_for_3d(&mut self) -> StencilMode {
         PaintParameters::stencil_mode_for_3d(self)
+    }
+
+    fn stencil_modes_for_3d(&mut self, modes: &mut [StencilMode]) -> bool {
+        PaintParameters::stencil_modes_for_3d(self, modes)
     }
 
     // conformance: for DrawableAtlasesTweaker.

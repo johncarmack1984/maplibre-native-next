@@ -94,6 +94,10 @@ impl PaintParameters for TestPaintParameters<'_> {
     fn stencil_mode_for_3d(&mut self) -> StencilMode {
         StencilMode::disabled()
     }
+    fn stencil_modes_for_3d(&mut self, modes: &mut [StencilMode]) -> bool {
+        modes.fill(StencilMode::disabled());
+        true
+    }
 }
 
 struct Background {

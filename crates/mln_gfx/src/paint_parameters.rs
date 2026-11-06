@@ -39,6 +39,15 @@ pub trait PaintParameters {
     fn stencil_mode_for_clipping(&self, tile_id: &UnwrappedTileID) -> StencilMode;
     /// Initialize a stencil mode for 3D rendering (each value is unique).
     fn stencil_mode_for_3d(&mut self) -> StencilMode;
+    /// `stencilModesFor3D(modes)`: gives each drawable a 3D stencil mode of
+    /// its own, clearing the stencil buffer first if they would not all fit,
+    /// so no value handed out before the clear is drawn after it. Returns
+    /// false, handing out none, when there are more drawables than the
+    /// buffer holds values: the caller then takes each one's value with
+    /// `stencil_mode_for_3d` as it draws it, so a clear falls between two
+    /// draws. C++ keys the modes by drawable; only their number matters
+    /// here, so the port passes the modes alone.
+    fn stencil_modes_for_3d(&mut self, modes: &mut [StencilMode]) -> bool;
 
     /// conformance: `parameters.state.getPitch()` and
     /// `parameters.state.isChanging()`, which `gfx::DrawableAtlasesTweaker`
