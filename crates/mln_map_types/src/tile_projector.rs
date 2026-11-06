@@ -2,7 +2,7 @@
 
 use crate::projection_base::{ProjectedTilePoint, ProjectionData};
 use crate::transform_state::TransformState;
-use maplibre_native_base::Point;
+use geometry::Point;
 use mln_tile_id::UnwrappedTileID;
 
 /// Projects the points of one tile through the current projection, the way

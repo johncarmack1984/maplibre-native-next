@@ -528,7 +528,7 @@ impl TilePyramid {
             traced.push(*geometry.last().expect("geometry"));
         }
         let screen_geometry: &[mln_util::geo::ScreenCoordinate] = if traced.is_empty() { geometry } else { &traced };
-        let mut query_geometry: Vec<maplibre_native_base::Point<f64>> = screen_geometry.iter().map(to_world).collect();
+        let mut query_geometry: Vec<geometry::Point<f64>> = screen_geometry.iter().map(to_world).collect();
 
         // `std::min(a, b)` and `std::max(a, b)`.
         let std_min = |a: f64, b: f64| if b < a { b } else { a };
@@ -596,8 +596,8 @@ impl TilePyramid {
 
         // mapbox::geometry::envelope(queryGeometry)
         let (box_min, box_max) = envelope(&mut query_geometry.iter().map(|p| (p.x, p.y)));
-        let box_min = maplibre_native_base::Point::new(box_min.0, box_min.1);
-        let box_max = maplibre_native_base::Point::new(box_max.0, box_max.1);
+        let box_min = geometry::Point::new(box_min.0, box_min.1);
+        let box_max = geometry::Point::new(box_max.0, box_max.1);
 
         // Sorted by (z, y, wrap, x). GL JS sorts the globe's query tiles by
         // their copy on the main world, so there the wrap only breaks ties.

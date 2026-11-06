@@ -4,7 +4,7 @@ use super::util::parse_json;
 use crate::conversion::{Converter, Error};
 use crate::projection::Projection;
 use crate::style_property::Kind;
-use maplibre_native_base::Value;
+use feature::Value;
 use mln_conversion::Convertible;
 use mln_style_types::ProjectionDefinition;
 

@@ -40,7 +40,7 @@ use crate::projection::{self, Projection};
 use crate::source::{self, Source};
 use crate::sprite::Sprite;
 use crate::transition_options::TransitionOptions;
-use maplibre_native_base::Value;
+use feature::Value;
 use mln_actor::{TaggedScheduler, scheduler};
 use mln_sprite::{SpriteLoader, SpriteLoaderObserver};
 use mln_storage::{AsyncRequest, FileSource, Resource, Response};

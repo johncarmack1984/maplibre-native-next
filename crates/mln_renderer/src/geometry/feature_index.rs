@@ -23,7 +23,7 @@ use mln_tile_id::{CanonicalTileID, OverscaledTileID, UnwrappedTileID};
 use mln_util::constants;
 use mln_util::feature::{Feature, feature_id_to_string};
 use mln_util::grid_index::{BBox, GridIndex};
-use maplibre_native_base::Point;
+use geometry::Point;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 

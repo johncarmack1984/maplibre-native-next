@@ -1,7 +1,7 @@
 // Ports test/gfx/fill_generator.test.cpp (gfx::generateFillAndOutineBuffers
 // lives in mln_renderer::gfx::fill_generator).
 
-use maplibre_native_base::Point;
+use geometry::Point;
 use mln_gfx::shaders::segment::{MAX_SEGMENT_VERTICES, SegmentBase};
 use mln_renderer::buckets::fill_bucket::FillLayoutVertex;
 use mln_renderer::buckets::line_bucket::LineLayoutVertex;

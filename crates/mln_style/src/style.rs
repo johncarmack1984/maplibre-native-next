@@ -7,7 +7,7 @@ use crate::light::Light;
 use crate::projection::Projection;
 use crate::source::Source;
 use crate::transition_options::TransitionOptions;
-use maplibre_native_base::Value;
+use feature::Value;
 use crate::map::camera::CameraOptions;
 use mln_util::exception::{ExceptionPtr, MisuseException};
 use mln_util::immutable::Immutable;

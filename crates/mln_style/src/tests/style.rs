@@ -12,7 +12,7 @@ use crate::projection::Projection;
 use crate::property_value::PropertyValue;
 use crate::style::{Impl, Style};
 use crate::transition_options::TransitionOptions;
-use maplibre_native_base::Value;
+use feature::Value;
 use mln_conversion::Convertible;
 use mln_style_types::{ProjectionDefinition, VisibilityType};
 use mln_util::LatLng;

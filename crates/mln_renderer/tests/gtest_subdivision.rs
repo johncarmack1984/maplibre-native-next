@@ -2,7 +2,8 @@
 // util::createTileMesh live in mln_renderer::util, GlobeTileMesh in
 // mln_renderer::globe_tile_mesh).
 
-use maplibre_native_base::{Identifier, Point, PropertyMap, Value};
+use feature::{Identifier, PropertyMap, Value};
+use geometry::Point;
 use mln_gfx::shaders::segment::MAX_SEGMENT_VERTICES;
 use mln_renderer::bucket::Bucket;
 use mln_renderer::buckets::FillExtrusionBucket;

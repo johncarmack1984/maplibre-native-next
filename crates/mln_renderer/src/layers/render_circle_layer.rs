@@ -68,7 +68,7 @@ fn project_point(
     projector: &mln_map_types::TileProjector<'_>,
     size: mln_util::size::Size,
 ) -> mln_tile_id::geometry_tile_data::GeometryCoordinate {
-    let pos = projector.project(&maplibre_native_base::Point::new(f64::from(p.x), f64::from(p.y)), 0.0).point;
+    let pos = projector.project(&geometry::Point::new(f64::from(p.x), f64::from(p.y)), 0.0).point;
     // `(float(pos.x) + 1) * size.width * 0.5`: float, then double.
     mln_tile_id::geometry_tile_data::GeometryCoordinate::new(
         (f64::from((pos.x as f32 + 1.0) * size.width as f32) * 0.5) as i16,
@@ -213,7 +213,7 @@ impl RenderLayer for RenderCircleLayer {
                 if transform_state.is_globe_rendering()
                     && projector
                         .project_as_drawn(
-                            &maplibre_native_base::Point::new(
+                            &geometry::Point::new(
                                 f64::from(f32::from(point.x) + drawn_translation[0]),
                                 f64::from(f32::from(point.y) + drawn_translation[1]),
                             ),
@@ -230,7 +230,7 @@ impl RenderLayer for RenderCircleLayer {
                 };
 
                 let projected =
-                    projector.project(&maplibre_native_base::Point::new(f64::from(point.x), f64::from(point.y)), 0.0);
+                    projector.project(&geometry::Point::new(f64::from(point.x), f64::from(point.y)), 0.0);
                 let mut adjusted_size = transformed_size;
                 let w = projected.signed_distance_from_camera;
                 let pitch_scale = *evaluated.get::<CirclePitchScale>();

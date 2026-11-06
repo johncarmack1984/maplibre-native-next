@@ -9,7 +9,7 @@ use crate::projection_base::{
     ProjectedTilePoint, ProjectionBase, ProjectionData, mercator_tile_coords, mercator_tile_matrix,
 };
 use crate::transform_state::{NorthOrientation, TransformState};
-use maplibre_native_base::Point;
+use geometry::Point;
 use mln_tile_id::UnwrappedTileID;
 use mln_util::constants::{EXTENT, LATITUDE_MAX};
 use mln_util::geo::{LatLng, ScreenCoordinate, WrapMode};

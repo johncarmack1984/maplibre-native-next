@@ -17,7 +17,7 @@ use crate::projection_base::{ProjectionBase, ProjectionData};
 use crate::tile_coordinate::TileCoordinate;
 use crate::util_camera::Camera;
 use crate::vertical_perspective_projection::VerticalPerspectiveProjection;
-use maplibre_native_base::Point;
+use geometry::Point;
 use mln_style_types::ProjectionDefinition;
 use mln_tile_id::UnwrappedTileID;
 use mln_util::constants;

@@ -5,7 +5,7 @@ use crate::projection_base::{
     ProjectedTilePoint, ProjectionBase, ProjectionData, mercator_tile_coords, mercator_tile_matrix,
 };
 use crate::transform_state::TransformState;
-use maplibre_native_base::Point;
+use geometry::Point;
 use mln_tile_id::UnwrappedTileID;
 use mln_util::geo::{LatLng, WrapMode};
 use mln_util::mat4::{Mat4, matrix};

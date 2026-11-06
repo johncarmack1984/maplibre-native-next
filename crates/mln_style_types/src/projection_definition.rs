@@ -3,7 +3,7 @@
 // `util::Interpolator<ProjectionDefinition>` specialization from
 // include/mln/util/interpolate.hpp.
 
-use maplibre_native_base::Value;
+use feature::Value;
 use mln_util::interpolate::{Interpolate, interpolate};
 
 /// The names the style's `projection.type` accepts.

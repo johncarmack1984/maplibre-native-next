@@ -17,7 +17,7 @@ use crate::paint_property_binder::{CrossFadedPaintPropertyBinder, PaintPropertyB
 use crate::gfx::fill_large_mesh_arrays::fill_large_mesh_arrays;
 use crate::render_layer::RenderLayer;
 use crate::util::subdivision::{SubdivisionResult, subdivide_polygon, subdivide_vertex_line};
-use maplibre_native_base::Point;
+use geometry::Point;
 use mln_gfx::UploadPass;
 use mln_gfx::shaders::segment::{MAX_SEGMENT_VERTICES, SegmentBase};
 use mln_map_types::TransformState;

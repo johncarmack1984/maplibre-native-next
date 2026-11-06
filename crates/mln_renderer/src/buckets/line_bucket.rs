@@ -5,7 +5,7 @@ use crate::layout::pattern_layout::PatternLayerMap;
 use crate::paint_property_binder::{CrossFadedPaintPropertyBinder, PaintPropertyBinder};
 use crate::render_layer::RenderLayer;
 use crate::util::subdivision::subdivide_vertex_line;
-use maplibre_native_base::Point;
+use geometry::Point;
 use mln_gfx::polyline_generator::{
     dist, PolylineGenerator, PolylineGeneratorDistances, PolylineGeneratorOptions,
 };

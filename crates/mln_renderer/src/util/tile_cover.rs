@@ -14,7 +14,7 @@
 // the tile order for equal sort keys is observable in the results.
 
 use crate::util::tile_cover_impl::Impl;
-use maplibre_native_base::Point;
+use geometry::Point;
 use mln_map_types::{TileCoordinate, TileLodMode, TransformState, ViewportMode};
 use mln_math::{fmax, fmin};
 use mln_style_types::SourceType;
@@ -316,7 +316,7 @@ pub fn covering_zoom_level(zoom: f64, type_: SourceType, size: u16) -> i32 {
 mod globe {
     use super::{TileCoverParameters, std_max, std_min};
     use crate::util::tile_lod::{TileZoomFunction, elevation_for_tile_culling};
-    use maplibre_native_base::Point;
+    use geometry::Point;
     use mln_map_types::VerticalPerspectiveProjection;
     use mln_tile_id::{CanonicalTileID, OverscaledTileID, UnwrappedTileID};
     use mln_util::bounding_volumes::{Frustum, IntersectionResult};

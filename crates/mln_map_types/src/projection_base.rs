@@ -6,7 +6,7 @@
 // `Send`.
 
 use crate::transform_state::TransformState;
-use maplibre_native_base::Point;
+use geometry::Point;
 use mln_tile_id::UnwrappedTileID;
 use mln_util::constants;
 use mln_util::geo::{LatLng, WrapMode};

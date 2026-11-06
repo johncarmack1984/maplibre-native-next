@@ -13,7 +13,7 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::rc::Rc;
 
-use maplibre_native_base::Point;
+use geometry::Point;
 use mln_map_types::{TileProjector, TransformState};
 use mln_tile_id::OverscaledTileID;
 use mln_util::constants::EXTENT;

@@ -7,7 +7,7 @@
 use crate::tile_mask::TileMask;
 use crate::util::subdivision::{NORTH_POLE_Y, SOUTH_POLE_Y};
 use crate::util::tile_mesh::{TileMeshOptions, create_tile_mesh};
-use maplibre_native_base::Point;
+use geometry::Point;
 use mln_gfx::index_vector::{IndexVectorBase, IndexVectorBasePtr};
 use mln_gfx::shaders::segment::SegmentBase;
 use mln_gfx::vertex_vector::VertexVector;
