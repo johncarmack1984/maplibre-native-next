@@ -1,0 +1,9 @@
+# The render and query tests the globe adds or changes, copied from its C++
+# branch with their paths kept. //tools/render-test:copied_render_tests runs
+# them; their tiles and images still come from the C++ repo's
+# metrics/cache-style.db.
+filegroup(
+    name = "render-test-files",
+    srcs = glob(["integration/**"]),
+    visibility = ["//tools/render-test:__pkg__"],
+)

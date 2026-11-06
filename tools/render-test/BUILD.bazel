@@ -123,6 +123,39 @@ rust_library(
     ],
 )
 
+# The render and query tests copied into //metrics (the ones the globe adds
+# or changes), on the Rust renderer. Their manifests differ from the ones
+# above only in base_test_path. While the reference checkout has these
+# tests too, render_tests runs them as well.
+COPIED_MANIFEST_ARGS = select({
+    "@platforms//os:macos": [
+        "--manifestPath",
+        "tools/render-test/manifests/macos-wgpu-copied.json",
+    ],
+    "//conditions:default": [
+        "--manifestPath",
+        "tools/render-test/manifests/linux-wgpu-copied.json",
+    ],
+})
+
+rust_test(
+    name = "copied_render_tests",
+    srcs = ["src/main.rs"],
+    args = COPIED_MANIFEST_ARGS,
+    crate_features = ["map"],
+    crate_root = "src/main.rs",
+    data = TEST_DATA + [
+        "manifests/linux-wgpu-copied.json",
+        "manifests/macos-wgpu-copied.json",
+        "//metrics:render-test-files",
+    ],
+    use_libtest_harness = False,
+    deps = [
+        ":render_test",
+        ":render_test_map",
+    ],
+)
+
 # `bazel run //tools/render-test -- --manifestPath tools/render-test/manifests/linux-wgpu.json --output <dir>`
 rust_binary(
     name = "render-test",
