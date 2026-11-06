@@ -4,9 +4,10 @@
 // src/mln/gfx/color_relief_drawable_data.hpp.
 
 use super::cast_matrix;
-use crate::layer_tweaker::{LayerTweaker, LayerTweakerBase};
+use crate::layer_tweaker::{to_projection_ubo, LayerTweaker, LayerTweakerBase};
 use crate::paint_parameters::PaintParameters;
 use mln_gfx::renderer::layer_group::visit_layer_group_drawables;
+use mln_gfx::shaders::layer_ubo::ProjectionUBO;
 use mln_gfx::shaders::color_relief_layer_ubo::{
     ColorReliefDrawableUBO, ColorReliefEvaluatedPropsUBO, ColorReliefTilePropsUBO,
 };
@@ -78,6 +79,7 @@ impl LayerTweaker for ColorReliefLayerTweaker {
         let count = layer_group.get_drawable_count();
         let mut drawable_ubo_vector = vec![ColorReliefDrawableUBO::default(); count];
         let mut tile_props_ubo_vector = vec![ColorReliefTilePropsUBO::default(); count];
+        let mut projection_ubo_vector = vec![ProjectionUBO::default(); count];
 
         visit_layer_group_drawables(layer_group, |drawable| {
             let Some(tile_id) = drawable.get_tile_id() else {
@@ -86,7 +88,10 @@ impl LayerTweaker for ColorReliefLayerTweaker {
 
             let tile_id = tile_id.to_unwrapped();
 
-            drawable_ubo_vector[i as usize].matrix = cast_matrix(&parameters.matrix_for_tile(&tile_id, false));
+            let projection = parameters.projection_data_for_tile(&tile_id, false);
+
+            drawable_ubo_vector[i as usize].matrix = cast_matrix(&projection.fallback_matrix);
+            projection_ubo_vector[i as usize] = to_projection_ubo(&projection);
 
             // Get tile props from drawable data (set during creation)
             if let Some(data) = drawable.get_data().and_then(|data| data.downcast_ref::<ColorReliefDrawableData>()) {
@@ -116,5 +121,6 @@ impl LayerTweaker for ColorReliefLayerTweaker {
         let layer_uniforms = layer_group.mutable_uniform_buffers();
         layer_uniforms.set(ID_COLOR_RELIEF_DRAWABLE_UBO, self.drawable_uniform_buffer.clone());
         layer_uniforms.set(ID_COLOR_RELIEF_TILE_PROPS_UBO, self.tile_props_uniform_buffer.clone());
+        self.base.upload_projection_ubos(layer_uniforms, &projection_ubo_vector, context);
     }
 }

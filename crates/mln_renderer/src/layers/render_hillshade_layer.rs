@@ -27,6 +27,7 @@ use crate::render_target::{RenderTarget, RenderTargetPtr};
 use crate::render_tree::RenderTree;
 use crate::update_parameters::UpdateParameters;
 use mln_gfx::index_vector::{IndexVectorBase, IndexVectorBasePtr};
+use mln_gfx::projection_variant::ProjectionVariant;
 use mln_gfx::shaders::segment::SegmentBase;
 use mln_gfx::shaders::shader_defines::*;
 use mln_gfx::texture2d::SamplerState;
@@ -274,11 +275,13 @@ impl RenderLayer for RenderHillshadeLayer {
         let layer_tweaker = self.base.layer_tweaker.clone();
 
         if self.hillshade_prepare_shader.is_none() {
-            self.hillshade_prepare_shader = context.get_generic_shader(shaders, HILLSHADE_PREPARE_SHADER_GROUP_NAME);
+            self.hillshade_prepare_shader =
+                context.get_generic_shader(shaders, HILLSHADE_PREPARE_SHADER_GROUP_NAME, ProjectionVariant::Mercator);
         }
 
         if self.hillshade_shader.is_none() {
-            self.hillshade_shader = context.get_generic_shader(shaders, HILLSHADE_SHADER_GROUP_NAME);
+            self.hillshade_shader =
+                context.get_generic_shader(shaders, HILLSHADE_SHADER_GROUP_NAME, self.base.projection_variant);
         }
 
         let (Some(hillshade_prepare_shader), Some(hillshade_shader)) =
