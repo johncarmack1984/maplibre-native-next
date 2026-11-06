@@ -306,7 +306,10 @@ std::string bucketReport(const JSValue& request) {
                                       .pixelRatio = 1.0f,
                                       .layerType = group.front()->baseImpl->getTypeInfo(),
                                       .globalState = nullptr,
-                                      .retainFeaturesById = false};
+                                      .retainFeaturesById = false,
+                                      .subdivisionGranularity = request.HasMember("globe") && request["globe"].GetBool()
+                                                                    ? SubdivisionGranularitySetting::globe()
+                                                                    : SubdivisionGranularitySetting::none()};
     GlyphDependencies glyphDependencies;
     ImageDependencies imageDependencies;
     const std::set<std::string> availableImages;
@@ -418,6 +421,12 @@ std::string fillgenReport(const JSValue& request) {
     SegmentVector lineSegments;
     gfx::IndexVector<gfx::Lines> basicLineIndexes;
     SegmentVector basicLineSegments;
+    const CanonicalTileID canonical = request.HasMember("canonical")
+                                          ? CanonicalTileID(static_cast<uint8_t>(request["canonical"][0].GetUint()),
+                                                            request["canonical"][1].GetUint(),
+                                                            request["canonical"][2].GetUint())
+                                          : CanonicalTileID(0, 0, 0);
+    const uint32_t granularity = request.HasMember("granularity") ? request["granularity"].GetUint() : 1;
     std::ostringstream out;
     try {
         for (const auto& geometry : request["geometries"].GetArray()) {
@@ -430,8 +439,8 @@ std::string fillgenReport(const JSValue& request) {
                                               lineSegments,
                                               basicLineIndexes,
                                               basicLineSegments,
-                                              // Unused at the default granularity of 1, which doesn't subdivide.
-                                              CanonicalTileID(0, 0, 0));
+                                              canonical,
+                                              granularity);
         }
     } catch (...) {
         out << "exception\n";
