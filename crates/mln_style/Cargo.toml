@@ -2,6 +2,7 @@
 name = "mln-rs-style"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -34,3 +35,6 @@ supercluster.workspace = true
 
 [dev-dependencies]
 mln_tile = { package = "mln-rs-tile", path = "../mln_tile" }
+
+[lints]
+workspace = true

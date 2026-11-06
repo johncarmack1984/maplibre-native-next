@@ -2,6 +2,7 @@
 name = "mln-rs-storage"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -42,3 +43,6 @@ path = "tests/sync_file_source.rs"
 [dev-dependencies]
 mln_map = { package = "mln-rs-map", path = "../mln_map" }
 mln_platform_default = { package = "mln-rs-platform-default", path = "../mln_platform_default" }
+
+[lints]
+workspace = true

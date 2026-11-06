@@ -2,6 +2,7 @@
 name = "mln-rs-conversion"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -16,3 +17,6 @@ doctest = false
 feature.workspace = true
 geojson.workspace = true
 serde_json.workspace = true
+
+[lints]
+workspace = true

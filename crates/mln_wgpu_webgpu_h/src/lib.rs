@@ -32,6 +32,8 @@
 
 // webgpu.h constants keep their C names, also in patterns.
 #![allow(non_upper_case_globals)]
+// The crate is FFI to webgpu.h.
+#![allow(unsafe_code)]
 
 mod command;
 mod conv;
@@ -76,9 +78,8 @@ pub unsafe fn wrap_host_objects(
         sys::wgpuInstanceAddRef(raw_instance);
         sys::wgpuDeviceAddRef(raw_device);
     }
-    let instance = Instance::from_host(
-        unsafe { handle::InstanceHandle::from_raw(raw_instance) }.expect("a non-null instance"),
-    );
+    let instance =
+        Instance::from_host(unsafe { handle::InstanceHandle::from_raw(raw_instance) }.expect("a non-null instance"));
     let device = unsafe { handle::DeviceHandle::from_raw(raw_device) }.expect("a non-null device");
     let (device, queue) = device::DeviceState::create(device::next_device_id(), device, instance.clone());
     (wgpu::Instance::from_custom(instance), wgpu::Device::from_custom(device), wgpu::Queue::from_custom(queue))

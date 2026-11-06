@@ -2,6 +2,7 @@
 name = "mln-rs-earcut-test-fixtures"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -13,3 +14,6 @@ publish = false
 [lib]
 name = "earcut_test_fixtures"
 doctest = false
+
+[lints]
+workspace = true

@@ -2,6 +2,7 @@
 name = "mln-rs-geojson"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -24,3 +25,6 @@ serde_json.workspace = true
 [[test]]
 name = "geojson_fixtures_test"
 path = "tests/geojson.rs"
+
+[lints]
+workspace = true

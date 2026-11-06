@@ -2,6 +2,7 @@
 name = "mln-rs-gfx"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -45,3 +46,6 @@ path = "tests/gtest_vulkan_acquire.rs"
 [[test]]
 name = "gtest_hash"
 path = "tests/gtest_hash.rs"
+
+[lints]
+workspace = true

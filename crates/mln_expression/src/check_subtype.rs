@@ -4,15 +4,14 @@
 use crate::type_::{self, Array, Type};
 
 pub fn error_message(expected: &Type, t: &Type) -> String {
-    format!(
-        "Expected {} but found {} instead.",
-        type_::to_string(expected),
-        type_::to_string(t)
-    )
+    format!("Expected {} but found {} instead.", type_::to_string(expected), type_::to_string(t))
 }
 
 /// `type::checkSubtype`: `None` if `t` is a subtype of `expected`, else the
 /// error message.
+// `if err.is_none() { return None; }` is C++'s `if (!err) return {};`: a
+// member matched, so `None` here is success, not an error to pass on.
+#[allow(clippy::question_mark)]
 pub fn check_subtype(expected: &Type, t: &Type) -> Option<String> {
     if *t == Type::Error {
         return None;

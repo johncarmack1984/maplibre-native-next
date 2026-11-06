@@ -2,6 +2,7 @@
 name = "mln-rs-wgpu-webgpu-h"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -20,3 +21,6 @@ wgpu = { workspace = true, features = ["default"] }
 # Emscripten doesn't provide.
 [target.'cfg(target_os = "emscripten")'.dependencies]
 wgpu = { workspace = true, features = ["parking_lot", "std", "wgsl"] }
+
+[lints]
+workspace = true

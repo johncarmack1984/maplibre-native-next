@@ -216,11 +216,8 @@ pub fn decode_offline_region_definition(region: &[u8]) -> Result<OfflineRegionDe
 
     // validation
 
-    let has_valid_bounds = || {
-        member("bounds")
-            .and_then(Json::as_array)
-            .is_some_and(|b| b.len() == 4 && b.iter().all(Json::is_f64))
-    };
+    let has_valid_bounds =
+        || member("bounds").and_then(Json::as_array).is_some_and(|b| b.len() == 4 && b.iter().all(Json::is_f64));
 
     let has_valid_geometry = || member("geometry").is_some_and(Json::is_object);
 
@@ -240,7 +237,7 @@ pub fn decode_offline_region_definition(region: &[u8]) -> Result<OfflineRegionDe
     let min_zoom = member("min_zoom").and_then(Json::as_f64).unwrap_or_default();
     let max_zoom = member("max_zoom").map_or(f64::INFINITY, |v| v.as_f64().unwrap_or_default());
     let pixel_ratio = member("pixel_ratio").and_then(Json::as_f64).unwrap_or_default() as f32;
-    let include_ideographs = member("include_ideographs").map_or(true, |v| v.as_bool().unwrap_or_default());
+    let include_ideographs = member("include_ideographs").is_none_or(|v| v.as_bool().unwrap_or_default());
 
     if let Some(bounds) = member("bounds") {
         // `bounds` is present but may be invalid when `geometry` is valid:
@@ -307,11 +304,7 @@ pub fn encode_offline_region_definition(region: &OfflineRegionDefinition) -> Str
         OfflineRegionDefinition::Geometry(region) => {
             w.key("geometry");
             let geometry = geojson::stringify_geometry(&region.geometry);
-            let type_ = if matches!(region.geometry, Geometry::Empty) {
-                Type::Null
-            } else {
-                Type::Object
-            };
+            let type_ = if matches!(region.geometry, Geometry::Empty) { Type::Null } else { Type::Object };
             w.raw_value(&geometry, type_);
         }
     }
@@ -408,11 +401,7 @@ pub struct OfflineRegion {
 impl OfflineRegion {
     /// The private constructor (`friend class OfflineDatabase`).
     pub(crate) fn new(id: i64, definition: OfflineRegionDefinition, metadata: OfflineRegionMetadata) -> Self {
-        OfflineRegion {
-            id,
-            definition,
-            metadata,
-        }
+        OfflineRegion { id, definition, metadata }
     }
 
     pub fn get_id(&self) -> i64 {

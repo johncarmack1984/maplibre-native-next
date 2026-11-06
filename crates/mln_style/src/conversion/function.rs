@@ -7,8 +7,7 @@
 
 use super::{Converter, Convertible, Error, convert};
 use crate::expression::{
-    Expression, Image, ParsingContext, Step, Stops, Type, Value, ValueConverter, create_interpolate,
-    dsl,
+    Expression, Image, ParsingContext, Step, Stops, Type, Value, ValueConverter, create_interpolate, dsl,
 };
 use crate::property_expression::PropertyExpression;
 use mln_expression::Interpolator;
@@ -464,21 +463,11 @@ fn categorical_bool(
     let false_case = branches.remove(&false).unwrap_or_else(|| dsl::error("replaced with default"));
 
     let converted_branches = vec![
-        (
-            dsl::eq(dsl::get(dsl::literal_str(property)), dsl::literal(Value::Bool(true))),
-            true_case,
-        ),
-        (
-            dsl::eq(dsl::get(dsl::literal_str(property)), dsl::literal(Value::Bool(false))),
-            false_case,
-        ),
+        (dsl::eq(dsl::get(dsl::literal_str(property)), dsl::literal(Value::Bool(true))), true_case),
+        (dsl::eq(dsl::get(dsl::literal_str(property)), dsl::literal(Value::Bool(false))), false_case),
     ];
 
-    Box::new(Case::new(
-        type_,
-        converted_branches,
-        def.unwrap_or_else(|| dsl::error("replaced with default")),
-    ))
+    Box::new(Case::new(type_, converted_branches, def.unwrap_or_else(|| dsl::error("replaced with default"))))
 }
 
 fn number_or_default(
@@ -491,10 +480,7 @@ fn number_or_default(
         return expr;
     };
 
-    let branches = vec![(
-        dsl::eq(dsl::compound("typeof", vec![get]), dsl::literal_str("number")),
-        expr,
-    )];
+    let branches = vec![(dsl::eq(dsl::compound("typeof", vec![get]), dsl::literal_str("number")), expr)];
     Box::new(Case::new(type_, branches, def))
 }
 
@@ -585,7 +571,7 @@ fn convert_categorical_function(
     }
 
     if first.array_member(0).to_bool().is_some() {
-        let branches = convert_branches::<bool>(&type_, value, err, |v, e| convert::<bool>(v, e))?;
+        let branches = convert_branches::<bool>(&type_, value, err, convert::<bool>)?;
         return Some(categorical_bool(type_, property, branches, def));
     }
 
@@ -595,7 +581,7 @@ fn convert_categorical_function(
     }
 
     if first.array_member(0).to_string().is_some() {
-        let branches = convert_branches::<String>(&type_, value, err, |v, e| convert::<String>(v, e))?;
+        let branches = convert_branches::<String>(&type_, value, err, convert::<String>)?;
         return Some(categorical(type_, property, branches, def));
     }
 
@@ -715,11 +701,7 @@ pub fn convert_function_to_expression_for_type(
 
     match value.object_member("type") {
         None => {
-            function_type = if interpolatable(&type_) {
-                FunctionType::Exponential
-            } else {
-                FunctionType::Interval
-            };
+            function_type = if interpolatable(&type_) { FunctionType::Exponential } else { FunctionType::Interval };
         }
         Some(type_value) => {
             if let Some(string) = type_value.to_string() {
@@ -884,12 +866,8 @@ pub fn convert_function_to_expression_for_type(
 
         if source_value.to_number().is_some() {
             return match function_type {
-                FunctionType::Interval => composite::<DoubleStops>(
-                    type_.clone(),
-                    value,
-                    err,
-                    &convert_double,
-                    &|type_inner, _, mut stops| {
+                FunctionType::Interval => {
+                    composite::<DoubleStops>(type_.clone(), value, err, &convert_double, &|type_inner, _, mut stops| {
                         omit_first_stop(&mut stops);
                         number_or_default(
                             type_.clone(),
@@ -897,22 +875,18 @@ pub fn convert_function_to_expression_for_type(
                             step(type_inner.clone(), get_property(true), stops),
                             default_for_inner(),
                         )
-                    },
-                ),
-                FunctionType::Exponential => composite::<DoubleStops>(
-                    type_.clone(),
-                    value,
-                    err,
-                    &convert_double,
-                    &|type_inner, base, stops| {
+                    })
+                }
+                FunctionType::Exponential => {
+                    composite::<DoubleStops>(type_.clone(), value, err, &convert_double, &|type_inner, base, stops| {
                         number_or_default(
                             type_.clone(),
                             get_property(false),
                             interpolate(type_inner.clone(), dsl::exponential(base), get_property(true), stops),
                             default_for_inner(),
                         )
-                    },
-                ),
+                    })
+                }
                 FunctionType::Categorical => composite::<BTreeMap<i64, Box<dyn Expression>>>(
                     type_.clone(),
                     value,

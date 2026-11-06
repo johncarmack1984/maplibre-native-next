@@ -18,8 +18,7 @@ use std::sync::{Arc, Mutex};
 
 fn asset_file_source() -> AssetFileSource {
     AssetFileSource::new(
-        &ResourceOptions::default_options()
-            .with_asset_path(cpp_path("test/fixtures/storage/assets").to_str().unwrap()),
+        &ResourceOptions::default_options().with_asset_path(cpp_path("test/fixtures/storage/assets").to_str().unwrap()),
         &ClientOptions::default(),
     )
 }
@@ -39,8 +38,8 @@ fn request(fs: &AssetFileSource, resource: Resource) -> Response {
         }),
     ));
     run_loop.run();
-    let response = result.borrow_mut().take().expect("response");
-    response
+
+    result.borrow_mut().take().expect("response")
 }
 
 fn data(res: &Response) -> &[u8] {
@@ -126,10 +125,7 @@ fn load() {
 
     for _ in 0..num_threads {
         let worker_fs = fs.clone();
-        let thread = Thread::new("Test", move |_| TestWorker {
-            fs: worker_fs,
-            chain: RefCell::new(None),
-        });
+        let thread = Thread::new("Test", move |_| TestWorker { fs: worker_fs, chain: RefCell::new(None) });
 
         let (completed, stop, failures) = (completed.clone(), run_loop.handle(), failures.clone());
         thread.actor().invoke(move |worker: &TestWorker| {

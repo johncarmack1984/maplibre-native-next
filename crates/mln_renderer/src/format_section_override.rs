@@ -10,11 +10,9 @@ use mln_expression::expression::{
 };
 use mln_expression::type_::Type;
 use mln_expression::value::{Value, ValueConverter};
-use mln_style::layers::symbol_layer_impl::SymbolLayerPaintPropertyOverrides;
-use mln_style::layers::symbol_layer_properties::{
-    SymbolLayoutProperties, SymbolPaintProperties, TextColor, TextField,
-};
 use mln_style::expression::GlobalStateMap;
+use mln_style::layers::symbol_layer_impl::SymbolLayerPaintPropertyOverrides;
+use mln_style::layers::symbol_layer_properties::{SymbolLayoutProperties, SymbolPaintProperties, TextColor, TextField};
 use mln_style::property_expression::PropertyExpression;
 use mln_style::renderer::possibly_evaluated_property_value::PossiblyEvaluatedPropertyValue;
 use mln_util::Color;
@@ -56,7 +54,7 @@ impl Expression for FormatSectionOverride {
                 // provides context state, it takes precedence.
                 if context.global_state.is_none() {
                     if let Some(state) = e.get_captured_global_state() {
-                        let mut context_with_state = context.clone();
+                        let mut context_with_state = *context;
                         context_with_state.global_state = Some(state);
                         return e.get_expression().evaluate(&context_with_state);
                     }
@@ -113,7 +111,8 @@ pub fn set_overrides(
     // the wrapper and exempt the bucket from relayout tracking.
     if value.is_constant() {
         let unevaluated_value = unevaluated.get::<TextColor>().get_value();
-        if unevaluated_value.is_expression() && unevaluated_value.get_dependencies().intersects(Dependency::GLOBAL_STATE)
+        if unevaluated_value.is_expression()
+            && unevaluated_value.get_dependencies().intersects(Dependency::GLOBAL_STATE)
         {
             let mut retained = unevaluated_value.as_expression().clone();
             retained.capture_global_state(global_state.clone());

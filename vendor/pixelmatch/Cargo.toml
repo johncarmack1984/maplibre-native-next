@@ -2,6 +2,7 @@
 name = "mln-rs-pixelmatch"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -20,3 +21,6 @@ doctest = false
 [[test]]
 name = "pixelmatch_fixtures_test"
 path = "tests/fixtures.rs"
+
+[lints]
+workspace = true

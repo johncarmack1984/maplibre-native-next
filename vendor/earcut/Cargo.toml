@@ -2,6 +2,7 @@
 name = "mln-rs-earcut"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -25,3 +26,6 @@ path = "tests/fixtures.rs"
 
 [dev-dependencies]
 earcut_test_fixtures = { package = "mln-rs-earcut-test-fixtures", path = "test_fixtures" }
+
+[lints]
+workspace = true

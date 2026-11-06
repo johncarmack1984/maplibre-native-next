@@ -1,17 +1,16 @@
 // Ports test/style/style_parser.test.cpp.
 
 use super::util::FixtureLog;
+use crate::layer::FontStack;
 use crate::parser::Parser;
 use mln_util::enum_::Enum;
 use mln_util::logging::{Event, EventSeverity, Log};
-use crate::layer::FontStack;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 fn fixtures_dir() -> PathBuf {
-    let base = std::env::var("RUNFILES_DIR")
-        .or_else(|_| std::env::var("TEST_SRCDIR"))
-        .expect("RUNFILES_DIR or TEST_SRCDIR");
+    let base =
+        std::env::var("RUNFILES_DIR").or_else(|_| std::env::var("TEST_SRCDIR")).expect("RUNFILES_DIR or TEST_SRCDIR");
     PathBuf::from(base).join("maplibre+/test/fixtures/style_parser")
 }
 
@@ -69,7 +68,7 @@ fn parse_style_fixture(name: &str) -> Result<(), String> {
 #[test]
 fn parse_style() {
     let names = fixture_names();
-    assert!(names.len() > 0);
+    assert!(!names.is_empty());
     let mut failures = Vec::new();
     for name in &names {
         if let Err(failure) = parse_style_fixture(name) {
@@ -255,7 +254,8 @@ fn zoom_curve() {
     use crate::expression::find_zoom_curve_checked;
     use mln_expression::value::Value;
 
-    let zoom_interp = || interpolate(linear(), zoom(), vec![(0.0, literal(Value::Number(0.0))), (0.0, literal(Value::Number(0.0)))]);
+    let zoom_interp =
+        || interpolate(linear(), zoom(), vec![(0.0, literal(Value::Number(0.0))), (0.0, literal(Value::Number(0.0)))]);
 
     let expr1 = interpolate(linear(), literal(Value::Number(0.0)), vec![(0.0, zoom_interp()), (0.0, zoom_interp())]);
     assert!(find_zoom_curve_checked(expr1.as_ref()).is_null());
@@ -263,4 +263,3 @@ fn zoom_curve() {
     let expr2 = interpolate(linear(), zoom(), vec![(0.0, literal(Value::Number(0.0))), (0.0, zoom_interp())]);
     assert!(find_zoom_curve_checked(expr2.as_ref()).is_null());
 }
-

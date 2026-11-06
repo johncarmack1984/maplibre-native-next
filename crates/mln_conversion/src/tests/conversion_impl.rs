@@ -28,9 +28,7 @@ impl ConversionTraits for MockConvertible {
         0
     }
     fn array_member(&self, _i: usize) -> Convertible<'_> {
-        Convertible::owned(MockConvertible {
-            counter: Rc::new(Cell::new(0)),
-        })
+        Convertible::owned(MockConvertible { counter: Rc::new(Cell::new(0)) })
     }
     fn is_object(&self) -> bool {
         false
@@ -60,13 +58,13 @@ impl ConversionTraits for MockConvertible {
 
 // gtest: Conversion.Move
 #[test]
+// `b = a; a = b` are the C++ test's two moves, not a swap.
+#[allow(clippy::almost_swapped)]
 fn move_() {
     let dtor_counter = Rc::new(Cell::new(0));
 
     {
-        let mock = MockConvertible {
-            counter: dtor_counter.clone(),
-        };
+        let mock = MockConvertible { counter: dtor_counter.clone() };
         let mut a = Convertible::owned(mock);
         let b = a;
         a = b;

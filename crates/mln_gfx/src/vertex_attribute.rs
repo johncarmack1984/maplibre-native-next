@@ -265,6 +265,7 @@ impl VertexAttribute {
 pub type UniqueVertexAttribute = Box<VertexAttribute>;
 
 /// `gfx::VertexAttributeArray`: attributes by id.
+#[derive(Default)]
 pub struct VertexAttributeArray {
     attrs: [Option<UniqueVertexAttribute>; MAX_ATTRIBUTE_COUNT_PER_SHADER],
 }
@@ -272,12 +273,6 @@ pub struct VertexAttributeArray {
 /// `std::shared_ptr<VertexAttributeArray>`; drawables, builders and upload
 /// passes mutate it through the shared pointer.
 pub type VertexAttributeArrayPtr = Rc<RefCell<VertexAttributeArray>>;
-
-impl Default for VertexAttributeArray {
-    fn default() -> Self {
-        VertexAttributeArray { attrs: Default::default() }
-    }
-}
 
 impl VertexAttributeArray {
     pub fn new() -> Self {
@@ -310,7 +305,13 @@ impl VertexAttributeArray {
 
     /// `set(id, index = -1, type = Invalid, count = 0)`: replaces the
     /// attribute with a new one.
-    pub fn set(&mut self, id: usize, index: i32, type_: AttributeDataType, count: usize) -> Option<&mut VertexAttribute> {
+    pub fn set(
+        &mut self,
+        id: usize,
+        index: i32,
+        type_: AttributeDataType,
+        count: usize,
+    ) -> Option<&mut VertexAttribute> {
         debug_assert!(id < self.attrs.len());
         if id >= self.attrs.len() {
             return None;

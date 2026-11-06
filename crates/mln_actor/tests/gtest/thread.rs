@@ -2,7 +2,7 @@
 
 use crate::{Failures, get};
 use mln_actor::actor::Actor;
-use mln_actor::scheduler::{self, SchedulerPtr, Task, TaggedScheduler};
+use mln_actor::scheduler::{self, SchedulerPtr, TaggedScheduler, Task};
 use mln_actor::{ActorRef, RunLoop, Thread, Timer};
 use mln_util::chrono::{Duration, milliseconds};
 use mln_util::identity::SimpleIdentity;
@@ -32,6 +32,8 @@ impl TestObject {
         cb(1);
     }
 
+    // The C++ test moves a `std::unique_ptr<int>` into the thread.
+    #[allow(clippy::boxed_local)]
     fn transfer_in(&self, val: Box<i32>) {
         self.failures.expect(self.tid == std::thread::current().id(), "transferIn on child thread");
         self.failures.expect(*val == 1, "*val == 1");
@@ -124,7 +126,7 @@ impl TestWorker {
     }
 
     fn send_delayed(&self, cb: impl Fn() + 'static) {
-        self.timer.start(milliseconds(300), Duration::zero(), move || cb());
+        self.timer.start(milliseconds(300), Duration::zero(), cb);
     }
 }
 
@@ -419,9 +421,7 @@ fn delete_before_child_starts() {
     let thread = Thread::new("Test", move |actor| TestWorkerDelayedConstruction::new(actor, start_future));
 
     let f = flag.clone();
-    thread
-        .actor()
-        .invoke(move |o: &TestWorkerDelayedConstruction| o.send(move || f.store(true, Ordering::SeqCst)));
+    thread.actor().invoke(move |o: &TestWorkerDelayedConstruction| o.send(move || f.store(true, Ordering::SeqCst)));
     let start = Mutex::new(Some(start));
     control.actor().invoke(move |o: &TestWorker| {
         o.send_delayed(move || {
