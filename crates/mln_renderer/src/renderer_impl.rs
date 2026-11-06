@@ -200,6 +200,9 @@ impl RendererImpl {
 
             // Give the layers a chance to upload
             orchestrator.visit_layer_groups(|layer_group| layer_group.upload(&*upload_pass));
+            if let Some(globe_depth) = orchestrator.get_globe_depth_layer_group() {
+                globe_depth.borrow_mut().upload(&*upload_pass);
+            }
 
             // Give the render targets a chance to upload
             // dem-heatmap
@@ -315,6 +318,12 @@ impl RendererImpl {
             parameters.pass = RenderPass::Translucent;
             parameters.depth_range_size =
                 1.0 - ((orchestrator.num_layer_groups() + 2) * num_sublayers) as f32 * depth_epsilon;
+
+            // The planet goes into the depth buffer first, so 3D geometry
+            // behind the horizon stays hidden.
+            if let Some(globe_depth) = orchestrator.get_globe_depth_layer_group() {
+                globe_depth.borrow_mut().render(&mut parameters);
+            }
 
             // draw layer groups, translucent pass
             parameters.current_layer = (orchestrator.num_layer_groups() as u32).wrapping_sub(1);

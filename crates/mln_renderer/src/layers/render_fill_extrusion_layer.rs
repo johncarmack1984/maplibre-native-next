@@ -142,12 +142,13 @@ impl RenderLayer for RenderFillExtrusionLayer {
         &mut self,
         shaders: &ShaderRegistry,
         context: &dyn Context,
-        _state: &TransformState,
+        state: &TransformState,
         _update_parameters: &Arc<UpdateParameters>,
         _paint_parameters: &PaintParameters<'_>,
         _render_tree: &RenderTree,
         changes: &mut UniqueChangeRequestVec,
     ) {
+        self.update_projection_variant(state);
         // TODO(port): stats.renderedFeatures.clear() (rendered-feature capture).
 
         let render_tiles = match self.base.render_tiles.clone() {
