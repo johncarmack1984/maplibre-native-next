@@ -1,15 +1,16 @@
 // Ports the WebGPU `ShaderSource<BuiltIn, Backend::Type::WebGPU>`
 // specialisations: the WGSL strings come from include/mln/shaders/webgpu/*.hpp
-// through the vendored `wgsl_sources` module (scripts/vendor-shaders); the
+// through the vendored `wgsl_sources` module (`just vendor-shaders`); the
 // attribute/texture tables from src/mln/shaders/webgpu/*.cpp are below.
 //
 // TODO(port): the attribute/texture tables of the other shader types
 // (fill_extrusion.cpp, symbol.cpp, raster.cpp, ...) arrive with their layers.
 
-use super::wgsl_sources;
 use mln_gfx::gfx_types::AttributeDataType;
 use mln_gfx::shaders::shader_defines::*;
 use mln_gfx::shaders::shader_source::BuiltIn;
+
+use super::wgsl_sources;
 
 /// The WGSL members of a `ShaderSource` specialisation, as extracted.
 #[derive(Debug)]
