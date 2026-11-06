@@ -5,5 +5,5 @@ mod suite;
 
 #[test]
 fn render_tests() {
-    assert_eq!(suite::run("render_tests", "wgpu", &[], Some(render_test::map::factory())), 0);
+    assert_eq!(suite::run("render_tests", &[], Some(render_test::map::factory())), 0);
 }

@@ -6,5 +6,5 @@ mod suite;
 
 #[test]
 fn self_check() {
-    assert_eq!(suite::run("self_check", "wgpu", &["--self-check", "--filter", "/render-tests/"], None), 0);
+    assert_eq!(suite::run("self_check", &["--self-check", "--filter", "/render-tests/"], None), 0);
 }
