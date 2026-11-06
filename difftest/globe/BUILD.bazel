@@ -1,0 +1,47 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_rust//rust:defs.bzl", "rust_test")
+load("//difftest/sqlite:defs.bzl", "ORACLE_SQLITE")
+
+# Differential test: the globe camera (TransformState, Transform and
+# VerticalPerspectiveProjection in //crates/mln_map_types and //crates/mln_map)
+# against the C++ core.
+
+cc_library(
+    name = "globe_reference",
+    srcs = [
+        "globe_reference.cpp",
+        "platform_shims.cpp",
+    ],
+    copts = [
+        "-std=c++20",
+        "-fexceptions",
+        "-fno-rtti",
+    ],
+    # As //difftest/util:reference: section GC drops what unused code in the
+    # pulled-in objects references. platform_shims.cpp defines symbols that
+    # mbgl-core needs.
+    alwayslink = True,
+    linkopts = select({
+        "@platforms//os:macos": [],
+        "//conditions:default": ["-Wl,--gc-sections"],
+    }),
+    deps = ["@maplibre//:mbgl-core"],
+)
+
+rust_test(
+    name = "globe_difftest",
+    size = "medium",
+    srcs = ["globe_difftest.rs"],
+    # Pinned to the Linux oracle (glibc libm, no FMA contraction): the C++
+    # itself rounds differently on macOS/arm64.
+    target_compatible_with = ["@platforms//os:linux"],
+    # mln_map brings rusqlite (through mln_storage): one SQLite on Linux.
+    link_deps = ORACLE_SQLITE + [":globe_reference"],
+    deps = [
+        "//crates/mln_map",
+        "//crates/mln_map_types",
+        "//crates/mln_style_types",
+        "//crates/mln_util",
+        "@next_crates//:proptest",
+    ],
+)

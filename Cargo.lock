@@ -1224,6 +1224,7 @@ dependencies = [
  "mln-rs-renderer",
  "mln-rs-storage",
  "mln-rs-style",
+ "mln-rs-style-types",
  "mln-rs-tile-id",
  "mln-rs-util",
 ]
@@ -1234,6 +1235,7 @@ version = "0.0.8"
 dependencies = [
  "mln-rs-geometry",
  "mln-rs-math",
+ "mln-rs-style-types",
  "mln-rs-tile-id",
  "mln-rs-util",
 ]
