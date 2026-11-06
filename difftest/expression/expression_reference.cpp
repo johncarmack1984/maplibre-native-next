@@ -101,6 +101,10 @@ std::string canonExpr(const Value& v) {
         [](const mln::Padding& p) -> std::string {
             return "p:" + hexBits(p.top) + "," + hexBits(p.right) + "," + hexBits(p.bottom) + "," + hexBits(p.left);
         },
+        [](const mln::ProjectionDefinition& p) -> std::string {
+            return "pd:" + std::string(mln::projectionTypeName(p.from)) + "," +
+                   std::string(mln::projectionTypeName(p.to)) + "," + hexBits(p.transition);
+        },
         [](const std::vector<Value>& a) -> std::string {
             std::string s = "[";
             for (std::size_t i = 0; i < a.size(); ++i) {

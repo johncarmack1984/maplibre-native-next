@@ -20,6 +20,7 @@ pub mod image;
 pub mod layer;
 pub mod light;
 pub mod position;
+pub mod projection;
 pub mod property_value;
 pub mod rotation;
 pub mod source;

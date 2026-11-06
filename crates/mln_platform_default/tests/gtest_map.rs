@@ -31,12 +31,14 @@ use mln_style::layers::line_layer::LineLayer;
 use mln_style::layers::location_indicator_layer::LocationIndicatorLayer;
 use mln_style::layers::raster_layer::RasterLayer;
 use mln_style::layers::symbol_layer::SymbolLayer;
+use mln_style::projection::Projection;
 use mln_style::property_expression::PropertyExpression;
 use mln_style::sources::geojson_source::GeoJSONSource;
 use mln_style::sources::image_source::ImageSource;
 use mln_style::sources::tile_source::{UrlOrTileset, VectorSource};
 use mln_style::style_property::Kind as StylePropertyKind;
 use mln_style::{PropertyValue, TransitionOptions};
+use mln_style_types::{ProjectionDefinition, ProjectionType};
 use mln_util::chrono::{Duration, Timestamp};
 use mln_util::geo::{EdgeInsets, LatLng, LatLngBounds, ScreenCoordinate, WrapMode};
 use mln_util::image::PremultipliedImage;
@@ -884,6 +886,39 @@ fn style_expired_with_render() {
 
     test.file_source.respond(Kind::Style, &response);
     assert_eq!(1, test.file_source.requests_len());
+}
+
+// gtest: Map.StyleExpiredWithProjection
+#[test]
+fn style_expired_with_projection() {
+    // A projection set at runtime, whole or in place, keeps the next response
+    // from overwriting the style.
+
+    for in_place in [false, true] {
+        let test = MapTest::fake();
+
+        test.map().get_style_mut().load_url("maptiler://maps/test");
+
+        let response = expired_or_fresh_response("test/fixtures/api/empty.json", hours_from_now(-1));
+        test.file_source.respond(Kind::Style, &response);
+
+        if in_place {
+            test.map()
+                .get_style_mut()
+                .get_projection_mut()
+                .set_type(PropertyValue::Constant(ProjectionDefinition::from_name("globe")));
+        } else {
+            let mut projection = Projection::new();
+            projection.set_type(PropertyValue::Constant(ProjectionDefinition::from_name("globe")));
+            test.map().get_style_mut().set_projection(projection);
+        }
+
+        test.file_source.respond(Kind::Style, &response);
+        let map = test.map();
+        let type_ = map.get_style().get_projection().get_type();
+        assert!(type_.is_constant(), "{in_place}");
+        assert_eq!(ProjectionType::Globe, type_.as_constant().from, "{in_place}");
+    }
 }
 
 // gtest: Map.StyleEarlyMutation

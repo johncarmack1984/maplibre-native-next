@@ -4,6 +4,7 @@ use crate::expression::GlobalStateMap;
 use crate::image;
 use crate::layer::Layer;
 use crate::light::Light;
+use crate::projection::Projection;
 use crate::source::Source;
 use crate::transition_options::TransitionOptions;
 use maplibre_native_base::Value;
@@ -11,7 +12,7 @@ use crate::map::camera::CameraOptions;
 use mln_util::exception::{ExceptionPtr, MisuseException};
 use mln_util::immutable::Immutable;
 
-pub use crate::style_impl::{Impl, LayerRefMut, LightRefMut};
+pub use crate::style_impl::{Impl, LayerRefMut, LightRefMut, ProjectionRefMut};
 
 #[derive(Debug)]
 pub struct Style {
@@ -90,6 +91,21 @@ impl Style {
 
     pub fn set_light(&mut self, light: Light) {
         self.impl_.set_light(light);
+    }
+
+    // Projection
+    pub fn get_projection_mut(&mut self) -> ProjectionRefMut<'_> {
+        self.impl_.mutated = true;
+        self.impl_.get_projection_mut()
+    }
+
+    pub fn get_projection(&self) -> &Projection {
+        self.impl_.get_projection()
+    }
+
+    pub fn set_projection(&mut self, projection: Projection) {
+        self.impl_.mutated = true;
+        self.impl_.set_projection(projection);
     }
 
     // Global state, used by the "global-state" expression.

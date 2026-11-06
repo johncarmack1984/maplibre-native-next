@@ -21,6 +21,7 @@ rust_library(
 rust_test(
     name = "mln_map_test",
     crate = ":mln_map",
+    deps = ["//crates/mln_tile_id"],
 )
 
 # Ports test/util/action_journal.test.cpp (placeholders: ActionJournal is a
