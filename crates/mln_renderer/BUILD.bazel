@@ -261,3 +261,13 @@ rust_test(
         "//crates/mln_util",
     ],
 )
+
+# Ports test/util/tile_lod.test.cpp (marker `// gtest: Group.Name`).
+rust_test(
+    name = "gtest_tile_lod",
+    srcs = ["tests/gtest_tile_lod.rs"],
+    deps = [
+        ":mln_renderer",
+        "//crates/mln_math",
+    ],
+)
