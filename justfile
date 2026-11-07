@@ -16,8 +16,8 @@ cpp := justfile_directory() / '..' / 'maplibre-native'
 # The Cargo profile `just glfw` builds the app with, e.g. `just profile=release glfw`
 profile := 'dev'
 
-# On NixOS, the tests and the apps build and run inside the C++ repo's #linux dev shell, which has the libraries they link
-# and load (GLFW, the Vulkan loader, ...). Elsewhere (macOS, CI) the system's libraries are the environment.
+# On NixOS, the tests and the apps build and run inside the C++ repo's #linux dev shell, extended by nix/flake.nix, which has the
+# libraries they link and load (GLFW, the Vulkan loader, ...). Elsewhere (macOS, CI) the system's libraries are the environment.
 nixos := path_exists('/etc/NIXOS')
 dev_shell := if nixos == 'true' {'nix develop ' + quote('path:' + justfile_directory() / '.nix-shell#linux') + ' --command'} else {''}
 
@@ -124,7 +124,8 @@ get-crate-field field package=main_crate:  (assert-cmd 'jq')
 # Get the minimum supported Rust version (MSRV) for the crate
 get-msrv package=main_crate:  (get-crate-field 'rust_version' package)
 
-# It builds with the Cargo profile in `profile`: `just profile=release glfw` runs an optimized build.
+# It builds with the Cargo profile in `profile`: `just profile=release glfw` runs an optimized build. Outside NixOS it needs the
+# system packages CI installs (.github/workflows/ci.yml, "Install system packages").
 [doc('Run the GLFW app: OpenFreeMap Liberty in a window (needs a display and the system GLFW). Arguments go to the app')]
 [positional-arguments]
 glfw *args:  _dev-shell
@@ -301,16 +302,20 @@ _coverage *report_args:  _dev-shell (cargo-install 'cargo-llvm-cov')
     {{dev_shell}} cargo llvm-cov --no-report --workspace
     cargo llvm-cov report --workspace {{report_args}}
 
-# The C++ repo's dev shell flake, used from a copy in .nix-shell: `nix develop path:<repo>` would copy the whole C++ working tree into the
-# store on every call. Nothing to do outside NixOS.
+# The dev shell flake (nix/flake.nix, which wraps the C++ repo's), used from a copy in .nix-shell: `nix develop path:<repo>` would copy
+# the whole working tree into the store on every call. Nothing to do outside NixOS.
 _dev-shell:
     #!/usr/bin/env bash
     set -euo pipefail
     [[ "{{nixos}}" == true ]] || exit 0
-    mkdir -p .nix-shell
-    for f in flake.nix flake.lock; do
-        cmp -s {{quote(cpp)}}/"$f" ".nix-shell/$f" || cp {{quote(cpp)}}/"$f" ".nix-shell/$f"
-    done
+    mkdir -p .nix-shell/cpp
+    cmp -s nix/flake.nix .nix-shell/flake.nix || cp nix/flake.nix .nix-shell/flake.nix
+    cmp -s {{quote(cpp)}}/flake.nix .nix-shell/cpp/flake.nix || cp {{quote(cpp)}}/flake.nix .nix-shell/cpp/flake.nix
+    # The wrapper's lock holds a copy of the C++ lock's nixpkgs: relock when that changes.
+    if ! cmp -s {{quote(cpp)}}/flake.lock .nix-shell/cpp/flake.lock; then
+        cp {{quote(cpp)}}/flake.lock .nix-shell/cpp/flake.lock
+        rm -f .nix-shell/flake.lock
+    fi
 
 # Ensure that a certain command is available
 [private]
