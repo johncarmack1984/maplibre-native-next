@@ -8,13 +8,15 @@
 //!
 //! The `sqlite` feature (on by default) holds everything that needs SQLite:
 //! `OfflineDatabase`, the database file source and the MBTiles file source.
-//! Without it the `ResourceLoader` has no ambient cache (platform/web relies
+//! Without it the `ResourceLoader` has no ambient cache (examples/web relies
 //! on the browser's HTTP cache instead).
 
 pub mod asset_file_source;
 pub mod async_request;
 #[cfg(feature = "sqlite")]
 pub mod database_file_source;
+#[cfg(target_family = "wasm")]
+mod fetch_transport;
 pub mod file_source;
 pub mod file_source_manager;
 pub mod file_source_request;
