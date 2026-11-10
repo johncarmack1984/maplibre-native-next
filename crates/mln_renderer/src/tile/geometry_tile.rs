@@ -656,7 +656,8 @@ impl Tile for GeometryTile {
 
         for (layer_id, render_data) in &layout_result.layer_render_data {
             let source_layer_id = &render_data.layer_properties.base_impl.source_layer;
-            if let Some(source_layer) = layers.get_layer(source_layer_id) {
+            // The worker got the layer from the same data.
+            if let Ok(Some(source_layer)) = layers.get_layer(source_layer_id) {
                 let Some(feature_states) = states.get(source_layer_id) else {
                     continue;
                 };
@@ -755,14 +756,14 @@ impl Tile for GeometryTile {
         global_state: Option<&GlobalStateMap>,
         proj_matrix: &Mat4,
         feature_state: &SourceFeatureState,
-    ) {
+    ) -> Result<(), mln_util::exception::ExceptionPtr> {
         let layout_result = self.inner.layout_result.borrow().clone();
         // `if (!getData()) return;`
         let Some(layout_result) = layout_result else {
-            return;
+            return Ok(());
         };
         if layout_result.feature_index.get_data().is_none() {
-            return;
+            return Ok(());
         }
 
         let query_padding = self.get_query_padding(layers);
@@ -786,7 +787,7 @@ impl Tile for GeometryTile {
             layers,
             query_padding * transform_state.max_pitch_scale_factor(),
             feature_state,
-        );
+        )
     }
 
     fn query_source_features(
@@ -794,30 +795,31 @@ impl Tile for GeometryTile {
         result: &mut Vec<Feature>,
         options: &SourceQueryOptions,
         global_state: Option<&GlobalStateMap>,
-    ) {
+    ) -> Result<(), mln_util::exception::ExceptionPtr> {
         let layout_result = self.inner.layout_result.borrow().clone();
         // Data not yet available, or tile is empty
         let Some(layout_result) = layout_result else {
-            return;
+            return Ok(());
         };
         let Some(data) = layout_result.feature_index.get_data() else {
-            return;
+            return Ok(());
         };
 
         // No source layers, specified, nothing to do
         let Some(source_layers) = &options.source_layers else {
             mln_util::logging::Log::warning(mln_util::logging::Event::General, "At least one sourceLayer required");
-            return;
+            return Ok(());
         };
 
         let id = self.inner.base.id();
         for source_layer in source_layers {
             // Go through all sourceLayers, if any
             // to gather all the features
-            if let Some(layer) = data.get_layer(source_layer) {
-                query_layer_source_features(&*layer, result, options, global_state, &id);
+            if let Some(layer) = data.get_layer(source_layer)? {
+                query_layer_source_features(&*layer, result, options, global_state, &id)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -837,10 +839,10 @@ pub fn query_layer_source_features(
     options: &SourceQueryOptions,
     global_state: Option<&GlobalStateMap>,
     id: &OverscaledTileID,
-) {
+) -> Result<(), ExceptionPtr> {
     let feature_count = layer.feature_count();
     for i in 0..feature_count {
-        let feature = layer.get_feature(i);
+        let feature = layer.get_feature(i)?;
 
         // Apply filter, if any
         if let Some(filter) = &options.filter {
@@ -849,16 +851,21 @@ pub fn query_layer_source_features(
                 Some(&*feature),
             )
             .with_global_state(global_state);
-            if !filter.evaluate(&context) {
+            let passes = filter.evaluate(&context);
+            feature.check()?;
+            if !passes {
                 continue;
             }
         }
 
-        // C++ `convertFeature` throws on malformed geometry (uncaught).
-        if let Ok(converted) = mln_tile::geometry_tile_data::convert_feature(&*feature, &id.canonical) {
-            result.push(Feature::from(converted));
-        }
+        // C++ throws out of the query for a malformed geometry (from
+        // `convertFeature`) or value.
+        let converted = mln_tile::geometry_tile_data::convert_feature(&*feature, &id.canonical)
+            .map_err(|e| Arc::new(e) as ExceptionPtr)?;
+        feature.check()?;
+        result.push(Feature::from(converted));
     }
+    Ok(())
 }
 
 impl GeometryTile {

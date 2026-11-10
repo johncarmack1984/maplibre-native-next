@@ -66,15 +66,19 @@ fn lat_lng(lat: f64, lon: f64) -> LatLng {
     LatLng::new(lat, lon).unwrap_or_else(|e| panic!("{e}"))
 }
 
-fn edge_insets(top: f64, left: f64, bottom: f64, right: f64) -> EdgeInsets {
-    // C++ constructs EdgeInsets directly, which throws std::domain_error.
-    EdgeInsets::new(top, left, bottom, right).unwrap_or_else(|e| panic!("{e}"))
+/// An animation frame's `EdgeInsets(top, left, bottom, right)`. C++ throws
+/// std::domain_error for NaN (infinite insets interpolate to NaN) out of
+/// the frame, and nothing catches it; the port logs it, and the frame keeps
+/// the insets.
+fn frame_edge_insets(top: f64, left: f64, bottom: f64, right: f64) -> Option<EdgeInsets> {
+    EdgeInsets::new(top, left, bottom, right).map_err(|e| Log::error(Event::General, &e)).ok()
 }
 
-/// `Projection::unproject`, which constructs a LatLng and so can throw
-/// std::domain_error; nothing catches it on these paths.
-fn unproject(p: &Point<f64>, scale: f64, wrap_mode: WrapMode) -> LatLng {
-    Projection::unproject(p, scale, wrap_mode).unwrap_or_else(|e| panic!("{e}"))
+/// An animation frame's `Projection::unproject`, which constructs a LatLng
+/// and so can throw std::domain_error (NaN); handled as
+/// [`frame_edge_insets`]: the frame keeps the center and zoom.
+fn frame_unproject(p: &Point<f64>, scale: f64, wrap_mode: WrapMode) -> Option<LatLng> {
+    Projection::unproject(p, scale, wrap_mode).map_err(|e| Log::error(Event::General, &e)).ok()
 }
 
 /// `std::to_string(double)`: `%f`.
@@ -297,23 +301,26 @@ impl Transform {
 
         let frame: FrameFn = Rc::new(move |state: &mut TransformState, t: f64| {
             let frame_point = interpolate(&start_point, &end_point, t);
-            let frame_lat_lng = unproject(&frame_point, state.zoom_scale(start_zoom), WrapMode::Unwrapped);
             let frame_zoom = interpolate(&start_zoom, &zoom, t);
-            state.set_lat_lng_zoom(&frame_lat_lng, frame_zoom);
+            if let Some(frame_lat_lng) =
+                frame_unproject(&frame_point, state.zoom_scale(start_zoom), WrapMode::Unwrapped)
+            {
+                state.set_lat_lng_zoom(&frame_lat_lng, frame_zoom);
+            }
             state.set_center_altitude(interpolate(&start_center_alt, &center_alt, t));
             if bearing != start_bearing {
                 state.set_bearing(mln_math::wrap(interpolate(&start_bearing, &bearing, t), -PI, PI));
             }
             if padding != start_edge_insets {
-                // Interpolate edge insets. C++ goes through the EdgeInsets
-                // constructor, which throws std::domain_error on NaN (from
-                // infinite insets); nothing catches it.
-                state.set_edge_insets(&edge_insets(
+                // Interpolate edge insets
+                if let Some(insets) = frame_edge_insets(
                     interpolate(&start_edge_insets.top, &padding.top, t),
                     interpolate(&start_edge_insets.left, &padding.left, t),
                     interpolate(&start_edge_insets.bottom, &padding.bottom, t),
                     interpolate(&start_edge_insets.right, &padding.right, t),
-                ));
+                ) {
+                    state.set_edge_insets(&insets);
+                }
             }
             let max_pitch = get_max_pitch_for_edge_insets(state, &state.get_edge_insets());
             if pitch != start_pitch || max_pitch < start_pitch {
@@ -529,21 +536,24 @@ impl Transform {
             }
 
             // Convert to geographic coordinates and set the new viewpoint.
-            let frame_lat_lng = unproject(&frame_point, start_scale, WrapMode::Unwrapped);
-            state.set_lat_lng_zoom(&frame_lat_lng, frame_zoom);
+            if let Some(frame_lat_lng) = frame_unproject(&frame_point, start_scale, WrapMode::Unwrapped) {
+                state.set_lat_lng_zoom(&frame_lat_lng, frame_zoom);
+            }
             state.set_center_altitude(interpolate(&start_center_alt, &center_alt, us));
             if bearing != start_bearing {
                 state.set_bearing(mln_math::wrap(interpolate(&start_bearing, &bearing, k), -PI, PI));
             }
 
             if padding != start_edge_insets {
-                // Interpolate edge insets (throwing constructor, as above)
-                state.set_edge_insets(&edge_insets(
+                // Interpolate edge insets
+                if let Some(insets) = frame_edge_insets(
                     interpolate(&start_edge_insets.top, &padding.top, k),
                     interpolate(&start_edge_insets.left, &padding.left, k),
                     interpolate(&start_edge_insets.bottom, &padding.bottom, k),
                     interpolate(&start_edge_insets.right, &padding.right, k),
-                ));
+                ) {
+                    state.set_edge_insets(&insets);
+                }
             }
 
             if pitch != start_pitch {
@@ -564,7 +574,9 @@ impl Transform {
     // MARK: - Position
 
     /// Pans the map by the given amount.
-    pub fn move_by(&mut self, offset: &ScreenCoordinate, animation: &AnimationOptions) {
+    /// `Err`: the std::domain_error of the C++ LatLng constructor (a NaN or
+    /// infinite offset).
+    pub fn move_by(&mut self, offset: &ScreenCoordinate, animation: &AnimationOptions) -> Result<(), String> {
         let mut center_offset = *offset;
 
         // Reduce the offset so that it never goes past the horizon. If it
@@ -588,8 +600,9 @@ impl Transform {
         let center = self.state.get_edge_insets().get_center(size.width as u16, size.height as u16);
         let point_on_screen = ScreenCoordinate::new(center.x - center_offset.x, center.y - center_offset.y);
         // Use unwrapped LatLng to carry information about moveBy direction.
-        let center = self.screen_coordinate_to_lat_lng(&point_on_screen, WrapMode::Unwrapped);
+        let center = self.screen_coordinate_to_lat_lng(&point_on_screen, WrapMode::Unwrapped)?;
         self.ease_to(&CameraOptions::default().with_center(Some(center)), animation);
+        Ok(())
     }
 
     /// `getLatLng(LatLng::WrapMode = LatLng::Wrapped)`.
@@ -804,10 +817,19 @@ impl Transform {
         // center points are mutually exclusive, with preference for the
         // center point when both are set.
         let mut anchor = if camera.center.is_some() { None } else { camera.anchor };
-        let mut anchor_lat_lng = lat_lng(0.0, 0.0);
+        let mut anchor_lat_lng = LatLng::default();
         if let Some(a) = anchor.as_mut() {
             a.y = self.state.get_size().height as f64 - a.y;
-            anchor_lat_lng = self.state.screen_coordinate_to_lat_lng(a, WrapMode::Unwrapped);
+            // C++ throws std::domain_error out of the camera change for an
+            // anchor that has no LatLng (NaN or infinite); the port logs it
+            // and ignores the anchor.
+            match self.state.screen_coordinate_to_lat_lng(a, WrapMode::Unwrapped) {
+                Ok(lat_lng) => anchor_lat_lng = lat_lng,
+                Err(e) => {
+                    Log::error(Event::General, &e);
+                    anchor = None;
+                }
+            }
         }
 
         self.transition_start = Clock::now();
@@ -827,8 +849,12 @@ impl Transform {
                 frame(&mut transform.state, ease.solve(t as f64, 0.001));
             }
 
-            if let Some(anchor) = anchor {
-                transform.state.move_lat_lng(&anchor_lat_lng, &anchor);
+            // The anchor had a LatLng at the start; a frame can't return the
+            // C++ exception, so it is logged, as in frame_edge_insets.
+            if let Some(anchor) = anchor
+                && let Err(e) = transform.state.move_lat_lng(&anchor_lat_lng, &anchor)
+            {
+                Log::error(Event::General, &e);
             }
 
             // At t = 1.0, a DidChangeAnimated notification should be sent
@@ -981,7 +1007,12 @@ impl Transform {
     }
 
     /// `screenCoordinateToLatLng(const ScreenCoordinate&, LatLng::WrapMode = LatLng::Wrapped)`.
-    pub fn screen_coordinate_to_lat_lng(&self, point: &ScreenCoordinate, wrap_mode: WrapMode) -> LatLng {
+    /// `Err`: the std::domain_error of the C++ LatLng constructor.
+    pub fn screen_coordinate_to_lat_lng(
+        &self,
+        point: &ScreenCoordinate,
+        wrap_mode: WrapMode,
+    ) -> Result<LatLng, String> {
         let mut flipped_point = *point;
         flipped_point.y = self.state.get_size().height as f64 - flipped_point.y;
         self.state.screen_coordinate_to_lat_lng(&flipped_point, wrap_mode)

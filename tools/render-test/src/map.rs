@@ -103,7 +103,7 @@ impl Impl {
                 .with_cross_source_collisions(metadata.cross_source_collisions),
             &resource_options,
             &client_options,
-        );
+        )?;
         if let Some(max_pitch) = metadata.max_pitch {
             map.set_bounds(&BoundOptions::default().with_max_pitch(f64::from(max_pitch)))?;
         }
@@ -162,7 +162,7 @@ impl TestRunnerImpl for Impl {
             .with_bearing(camera.bearing)
             .with_pitch(camera.pitch)
             .with_roll(camera.roll);
-        let bounds = self.map.lat_lng_bounds_for_camera(&camera);
+        let bounds = self.map.lat_lng_bounds_for_camera(&camera).map_err(MapError::Exception)?;
         Ok(mln_renderer::util::tile_cover::tile_cover_bounds(&bounds, zoom)
             .into_iter()
             .map(|id| crate::runner::TileId { z: id.canonical.z, x: id.canonical.x, y: id.canonical.y, wrap: id.wrap })
@@ -305,12 +305,14 @@ impl TestRunnerImpl for Impl {
             None => None,
         };
         let options = mln_renderer::query::RenderedQueryOptions::new(options.layer_ids.clone(), filter);
-        Ok(self.frontend.with_renderer(|renderer| match geometry {
-            QueryGeometry::Point(point) => renderer.query_rendered_features_at_point(point, &options),
-            QueryGeometry::Box(screen_box) => {
-                renderer.query_rendered_features_in_box(&screen_box.min, &screen_box.max, &options)
-            }
-        }))
+        self.frontend
+            .with_renderer(|renderer| match geometry {
+                QueryGeometry::Point(point) => renderer.query_rendered_features_at_point(point, &options),
+                QueryGeometry::Box(screen_box) => {
+                    renderer.query_rendered_features_in_box(&screen_box.min, &screen_box.max, &options)
+                }
+            })
+            .map_err(|e| MapError::Exception(e.to_string()))
     }
 
     // conformance: setTileLod* (Map::setTileLod*, glfw ported them).
