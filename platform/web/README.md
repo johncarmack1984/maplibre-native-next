@@ -63,8 +63,8 @@ in a storage worker loaded only when a page asks for them.
 ## Build and run
 
 `wasm-bindgen-cli` must be the version in Cargo.lock, and a release build
-also runs binaryen's `wasm-opt` (its latest release), which strips the names and
-the other custom sections:
+also runs binaryen's `wasm-opt` (its latest release), which shrinks the code with
+`-Oz` and strips the names and the other custom sections:
 
 ```sh
 cargo install wasm-bindgen-cli --version 0.2.130
