@@ -153,6 +153,16 @@ impl Map {
         self.impl_.on_update();
     }
 
+    /// `cancelTransitions(uint64_t transitionId)`: cancels the commands whose
+    /// [`AnimationOptions::transition_id`] equals `transition_id`, and leaves
+    /// the others running. Requests an update only when a command ended.
+    pub fn cancel_transitions_with_id(&mut self, transition_id: u64) {
+        let ended = self.impl_.transform.borrow_mut().cancel_transitions_with_id(transition_id);
+        if ended {
+            self.impl_.on_update();
+        }
+    }
+
     pub fn set_gesture_in_progress(&mut self, in_progress: bool) {
         self.impl_.transform.borrow_mut().set_gesture_in_progress(in_progress);
         self.impl_.on_update();
@@ -172,6 +182,13 @@ impl Map {
 
     pub fn is_panning(&self) -> bool {
         self.impl_.transform.borrow().is_panning()
+    }
+
+    /// Whether any camera command is still animating. A command's
+    /// `MapObserver::on_camera_did_change` ends that command only, so this
+    /// tells whether the camera stopped once the last one ended.
+    pub fn in_transition(&self) -> bool {
+        self.impl_.transform.borrow().in_transition()
     }
 
     // MARK: - Camera
