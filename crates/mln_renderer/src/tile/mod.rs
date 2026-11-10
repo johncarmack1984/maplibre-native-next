@@ -15,6 +15,8 @@ pub mod raster_tile;
 pub mod tile_cache;
 pub mod tile_loader;
 pub mod tile_observer;
+pub mod tile_worker_transport;
 pub mod vector_tile;
+pub mod worker_codec;
 
 pub use tile::{Kind, Tile, TileBase, TileNecessity, TileOperation, TileUpdateParameters};
