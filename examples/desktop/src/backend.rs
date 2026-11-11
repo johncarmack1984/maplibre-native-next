@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::sync::mpsc;
 
 use mln_gfx::RendererBackend;
+use mln_util::error::Error;
 use mln_util::image::PremultipliedImage;
 use mln_util::size::Size;
 use winit::event_loop::EventLoopProxy;
@@ -80,14 +81,14 @@ impl SurfaceBackend {
         proxy: &EventLoopProxy<UserEvent>,
         framebuffer_size: Size,
         cap_frame_rate: bool,
-    ) -> Result<SurfaceBackend, String> {
-        const CLOSED: &str = "The window closed before it had a surface";
+    ) -> Result<SurfaceBackend, Error> {
+        let closed = || Error::cancelled("The window closed before it had a surface");
         match kind {
             #[cfg(target_os = "macos")]
             Kind::Metal => {
                 let (reply, layer) = mpsc::channel();
-                proxy.send_event(UserEvent::MakeLayer(reply)).map_err(|_| CLOSED.to_owned())?;
-                let layer = layer.recv().map_err(|_| CLOSED.to_owned())??;
+                proxy.send_event(UserEvent::MakeLayer(reply)).map_err(|_| closed())?;
+                let layer = layer.recv().map_err(|_| closed())?.map_err(Error::native)?;
                 let backend = mln_mtl::SurfaceBackend::new(layer.into_layer(), framebuffer_size, cap_frame_rate)?;
                 Ok(SurfaceBackend::Metal(Rc::new(backend)))
             }
@@ -95,8 +96,8 @@ impl SurfaceBackend {
                 let proxy = proxy.clone();
                 let make_surface = move |instance: &wgpu::Instance| {
                     let (reply, surface) = mpsc::channel();
-                    proxy.send_event(UserEvent::MakeSurface(instance.clone(), reply)).map_err(|_| CLOSED.to_owned())?;
-                    surface.recv().map_err(|_| CLOSED.to_owned())?
+                    proxy.send_event(UserEvent::MakeSurface(instance.clone(), reply)).map_err(|_| closed())?;
+                    surface.recv().map_err(|_| closed())?.map_err(Error::native)
                 };
                 let backend = mln_webgpu::SurfaceBackend::new(make_surface, framebuffer_size, cap_frame_rate)?;
                 Ok(SurfaceBackend::WebGpu(Rc::new(backend)))
