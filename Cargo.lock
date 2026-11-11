@@ -1750,6 +1750,7 @@ dependencies = [
  "mln-rs-style-types",
  "mln-rs-test-server",
  "mln-rs-text",
+ "mln-rs-tile-id",
  "mln-rs-util",
  "mln-rs-webgpu",
  "serde_json",
@@ -2080,6 +2081,7 @@ version = "0.0.10"
 dependencies = [
  "mln-rs-feature",
  "mln-rs-geometry",
+ "mln-rs-math",
  "mln-rs-util",
  "serde",
 ]
