@@ -1553,6 +1553,7 @@ dependencies = [
  "mln-rs-renderer",
  "mln-rs-storage",
  "mln-rs-style",
+ "mln-rs-text",
  "mln-rs-util",
  "mln-rs-webgpu",
  "serde",
