@@ -1,5 +1,5 @@
 // Ports src/mln/renderer/paint_parameters.hpp and src/mln/renderer/paint_parameters.cpp
-// (non-OpenGL backend branches; the port's backend is WebGPU).
+// (the Metal and WebGPU branches, which are the same).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -296,7 +296,7 @@ impl<'a> PaintParameters<'a> {
             self.context.release_globe_clip_masks();
         }
 
-        // MLN_RENDER_BACKEND_WEBGPU
+        // MLN_RENDER_BACKEND_METAL and MLN_RENDER_BACKEND_WEBGPU, the same.
         let globe = self.state.is_globe_rendering();
         let mut tile_ubos: Vec<ClipUBO> = Vec::new();
         let mut globe_masks: Vec<GlobeClipMask> = Vec::new();
