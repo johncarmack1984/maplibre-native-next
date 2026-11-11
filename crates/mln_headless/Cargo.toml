@@ -79,6 +79,7 @@ mln_math = { package = "mln-rs-math", path = "../mln_math" }
 mln_storage = { workspace = true, features = ["sqlite"] }
 mln_style_types.workspace = true
 mln_test_server = { package = "mln-rs-test-server", path = "../../tools/test-server" }
+mln_text = { package = "mln-rs-text", path = "../mln_text" }
 pixelmatch = { package = "mln-rs-pixelmatch", path = "../../vendor/pixelmatch" }
 serde_json.workspace = true
 
