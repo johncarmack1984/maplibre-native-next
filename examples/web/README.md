@@ -101,6 +101,18 @@ map's Web Worker with an `OffscreenCanvas`, and the `GlyphManager` turns it
 into an SDF. The check turns it off, as GL JS's render tests do, so that
 its frames match the native renders.
 
+## Startup
+
+The page creates the Web Workers as soon as it starts the module's
+download and compile, so that their scripts load meanwhile, and posts
+them the module once it has compiled. Meanwhile the map's Web Worker
+fetches what the map asks for first: the style, then its sources'
+TileJSON, its sprite and the first glyph range of each constant
+`text-font` of the labels shown at the camera's zoom. The map's fetch
+transport takes each of those responses (mln_storage's
+`set_fetch_preloads`) when the map fetches the same URL, and fetches as
+before for any other.
+
 ## Caching
 
 The browser's HTTP cache caches the map's resources, as in MapLibre GL
