@@ -336,6 +336,145 @@ fn lat_lngs_to_camera_with_bearing_and_pitch_min_max() {
     assert_double_eq(test.map().get_bounds().max_pitch.unwrap(), 60.0);
 }
 
+/// A geometry fits as its points do, wherever they sit in it.
+#[test]
+fn geometry_to_camera() {
+    use mln_util::geometry::{Geometry as G, Point as P};
+    let test = MapTest::new();
+    let points: Vec<P<f64>> = lat_lngs().iter().map(|ll| P::new(ll.longitude(), ll.latitude())).collect();
+    let geometry = G::GeometryCollection(vec![
+        G::Point(points[0]),
+        G::Polygon(vec![vec![points[1], points[2], points[1]]]),
+        G::Empty,
+    ]);
+
+    let expected = test.map().camera_for_lat_lngs(&lat_lngs(), &EdgeInsets::default(), Some(23.0), Some(20.0)).unwrap();
+    let fitted = test.map().camera_for_geometry(&geometry, &EdgeInsets::default(), Some(23.0), Some(20.0)).unwrap();
+    assert_double_eq(fitted.zoom.unwrap(), expected.zoom.unwrap());
+    assert_double_eq(fitted.center.unwrap().latitude(), expected.center.unwrap().latitude());
+    assert_double_eq(fitted.center.unwrap().longitude(), expected.center.unwrap().longitude());
+    assert_double_eq(fitted.bearing.unwrap(), 23.0);
+    assert_double_eq(fitted.pitch.unwrap(), 20.0);
+
+    let fitted = test.map().camera_for_geometry(&G::LineString(points), &EdgeInsets::default(), None, None).unwrap();
+    let expected = test.map().camera_for_lat_lngs(&lat_lngs(), &EdgeInsets::default(), None, None).unwrap();
+    assert_double_eq(fitted.zoom.unwrap(), expected.zoom.unwrap());
+
+    // No points: the camera as cameraForLatLngs leaves it, unset.
+    assert!(test.map().camera_for_geometry(&G::Empty, &EdgeInsets::default(), None, None).unwrap().zoom.is_none());
+    // A point with no LatLng.
+    let bad = G::MultiPoint(vec![P::new(0.0, 0.0), P::new(0.0, 91.0)]);
+    assert!(test.map().camera_for_geometry(&bad, &EdgeInsets::default(), None, None).is_err());
+}
+
+/// A style with no sources publishes an update once it loads: a continuous
+/// map whose camera was set first (so the style's default camera doesn't
+/// jump it) still renders the style and finishes loading
+/// (maplibre/maplibre-native#4674).
+#[test]
+fn a_sourceless_style_loaded_after_the_camera_renders() {
+    let test = MapTest::with_mode(1.0, MapMode::Continuous);
+    test.map().jump_to(&cam().with_center(Some(ll(10.0, 20.0))).with_zoom(Some(3.0)));
+    test.load_json(
+        r##"{"version": 8, "sources": {}, "layers": [
+            {"id": "bg", "type": "background", "paint": {"background-color": "#00ff00"}}
+        ]}"##,
+    );
+
+    let loaded = Rc::new(Cell::new(false));
+    let timeout = Timer::new();
+    {
+        let run_loop = test.run_loop.clone();
+        timeout.start(Duration::from_secs(5), Duration::zero(), move || run_loop.stop());
+    }
+    {
+        let loaded = loaded.clone();
+        let run_loop = test.run_loop.clone();
+        test.observer.did_finish_loading_map_callback.set(move |_| {
+            loaded.set(true);
+            run_loop.stop();
+        });
+    }
+    test.run_loop.run();
+    test.observer.did_finish_loading_map_callback.clear();
+    assert!(loaded.get(), "the map never finished loading");
+
+    let image = {
+        let _scope = BackendScope::new(test.frontend.get_backend(), ScopeType::Explicit);
+        test.frontend.read_still_image()
+    };
+    assert_eq!(center_pixel(&image), [0, 255, 0, 255]);
+}
+
+/// A flight too slow for its duration to be held jumps, so the map goes idle
+/// rather than animating for centuries.
+#[test]
+fn fly_too_slow_to_time_jumps_and_the_map_goes_idle() {
+    let test = MapTest::with_mode(1.0, MapMode::Continuous);
+    test.load_json(r##"{"version": 8, "sources": {}, "layers": [{"id": "bg", "type": "background"}]}"##);
+    let run_until_idle = || {
+        let idle = Rc::new(Cell::new(false));
+        let timeout = Timer::new();
+        {
+            let run_loop = test.run_loop.clone();
+            timeout.start(Duration::from_secs(5), Duration::zero(), move || run_loop.stop());
+        }
+        {
+            let idle = idle.clone();
+            let run_loop = test.run_loop.clone();
+            test.observer.did_become_idle_callback.set(move |_| {
+                idle.set(true);
+                run_loop.stop();
+            });
+        }
+        test.run_loop.run();
+        test.observer.did_become_idle_callback.clear();
+        idle.get()
+    };
+    assert!(run_until_idle());
+
+    let target = cam().with_center(Some(ll(40.0, -74.0))).with_zoom(Some(10.0));
+    test.map().fly_to(&target, &AnimationOptions { velocity: Some(f64::from_bits(1)), ..AnimationOptions::default() });
+    assert!(!test.map().in_transition());
+    assert_near(test.map().get_camera_options(None).zoom.unwrap(), 10.0, 1e-9);
+    assert!(run_until_idle());
+}
+
+/// Free camera options place the camera, and cancel the running commands.
+#[test]
+fn free_camera_options_place_the_camera_and_cancel_commands() {
+    let test = MapTest::new();
+    let ended = Rc::new(Cell::new(None));
+    let record = ended.clone();
+    let animation = AnimationOptions {
+        transition_end_fn: Some(Rc::new(move |end: &mln_map::TransitionEnd| record.set(Some(end.outcome)))),
+        ..AnimationOptions::new(Duration::from_secs(10))
+    };
+    test.map().ease_to(&cam().with_zoom(Some(10.0)), &animation);
+    assert!(test.map().in_transition());
+
+    let position = [0.25, 0.25, 0.01];
+    test.map().set_free_camera_options(&mln_map::FreeCameraOptions { position: Some(position), orientation: None });
+    assert_eq!(ended.get(), Some(mln_map::TransitionOutcome::Cancelled));
+    assert!(!test.map().in_transition());
+    let placed = test.map().get_free_camera_options().position.unwrap();
+    for (placed, wanted) in placed.iter().zip(position) {
+        assert_near(*placed, wanted, 1e-9);
+    }
+    // Looking straight down from a quarter of the world's width and height:
+    // the center is 90° W, north of the equator.
+    let center = test.map().get_camera_options(None).center.unwrap();
+    assert_near(center.longitude(), -90.0, 1e-6);
+    assert!(center.latitude() > 0.0);
+
+    // A NaN position is ignored.
+    test.map().set_free_camera_options(&mln_map::FreeCameraOptions {
+        position: Some([f64::NAN, 0.0, 0.0]),
+        orientation: None,
+    });
+    assert_near(test.map().get_camera_options(None).center.unwrap().longitude(), -90.0, 1e-6);
+}
+
 // gtest: Map.CameraToLatLngBounds
 #[test]
 fn camera_to_lat_lng_bounds() {
