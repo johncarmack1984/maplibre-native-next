@@ -34,6 +34,7 @@ just bench-compare main         # this checkout, uncommitted changes included, a
 | `Frame/Idle` | 100 ms of a settled map whose run loop draws whenever the map asks |
 | `Frame/FeatureState` | a frame of `Frame/Throughput` over the basemap with its buildings and a street overlay colored by feature state, every building and street of the loaded tiles given a state |
 | `Frame/FeatureStateHover` | a frame of `Frame/Throughput` over the basemap with its buildings colored by feature state, one building's state changing in every frame as hover highlighting does |
+| `Frame/HideLayers` | every layer of the loaded basemap hidden until the map settles, then shown again until it settles complete |
 | `Frame/SettleWithoutSymbols` | from a camera nudge on the basemap with its symbol layers left out, which has nothing to place, until the map stops asking for frames |
 | `Frame/AddImages` | from adding 50 icons to a settled basemap, five on each refresh, until it stops asking for frames; a symbol layer over 20 points draws five of them, which its tile asked for before they were added, and nothing draws the rest |
 | `Load/Concurrent` | 16 renderers on threads of their own, each from loading a real-world style on a new map to its first complete still through `HeadlessFrontend::render`, as the render tests' workers draw; the GPU devices are set up before |
@@ -67,6 +68,7 @@ metrics only; `--verbose` also shows the others.
   view shows complete.
 - In `Frame/Idle`: **`frames_per_s`**, frames drawn while nothing changes.
 - In `Frame/SettleWithoutSymbols`: **`frames`**, frames drawn until the map stops asking for them.
+- In `Frame/HideLayers`: **`hidden_heap_mib`** and **`hidden_gpu_mib`**, the heap and the GPU's vertex and index buffers live while the layers are hidden.
 
 ## Comparing
 
