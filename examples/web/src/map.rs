@@ -142,7 +142,7 @@ fn physical(size: Size, pixel_ratio: f64) -> Size {
 }
 
 /// Hands this instance's fetches the responses its Web Worker fetched ahead
-/// (web/map-worker.js): `take(url)` returns a promise of the response
+/// (web/map-worker.ts): `take(url)` returns a promise of the response
 /// fetched for exactly `url`, once, or undefined (mln_storage's
 /// `set_fetch_preloads`).
 #[wasm_bindgen]
@@ -151,7 +151,7 @@ pub fn set_preloads(take: js_sys::Function) {
 }
 
 /// A continuous map in an OffscreenCanvas, in the Web Worker that runs it
-/// (web/map-worker.js).
+/// (web/map-worker.ts).
 #[wasm_bindgen]
 pub struct WebMap {
     // Dropped first: the map resets the renderer through the frontend.
@@ -325,6 +325,24 @@ impl WebMap {
         self.gestures.step_to(&mut self.map, update);
     }
 
+    /// Jumps to another map's camera, for a comparison that this map
+    /// follows: its own motion stops (an ease, momentum, a wheel's eased
+    /// zoom).
+    pub fn follow(&mut self, latitude: f64, longitude: f64, zoom: f64, bearing: f64, pitch: f64) {
+        self.map.cancel_transitions();
+        let update = CameraUpdate {
+            mode: CameraUpdateMode::Jump,
+            camera: CameraOptions::default()
+                .with_center(LatLng::new(latitude, longitude).ok())
+                .with_zoom(Some(zoom))
+                .with_bearing(Some(bearing))
+                .with_pitch(Some(pitch)),
+            animation: AnimationOptions::default(),
+            phase: GesturePhase::None,
+        };
+        self.gestures.step_to(&mut self.map, update);
+    }
+
     /// The attributions of the style's sources that have one, as HTML. A
     /// source that links a TileJSON has one once the TileJSON loads.
     pub fn attributions(&self) -> Vec<String> {
@@ -437,7 +455,7 @@ impl WebMap {
         self.gestures.handle(&mut self.map, Input::PointerCancel { id }, time)
     }
 
-    /// A DOM `wheel` event, as the page classifies it (web/main.js): at
+    /// A DOM `wheel` event, as the page classifies it (web/main.ts): at
     /// (`x`, `y`), `amount` notches of a mouse wheel when `kind` is
     /// [`WHEEL_NOTCHES`], or `amount` pixels of continuous scrolling when it
     /// is [`WHEEL_PIXELS`]; positive scrolls down.
@@ -496,7 +514,7 @@ impl WebMap {
     }
 }
 
-/// `WebMap::wheel`'s `kind`, as web/main.js's `WHEEL_PIXELS` and
+/// `WebMap::wheel`'s `kind`, as web/protocol.ts's `WHEEL_PIXELS` and
 /// `WHEEL_NOTCHES` send it.
 const WHEEL_PIXELS: u32 = 0;
 const WHEEL_NOTCHES: u32 = 1;
