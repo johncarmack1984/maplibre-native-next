@@ -6,7 +6,7 @@
 // they ran (`CallbackLog`) and the test asserts on the Transform right after
 // the call that ran them. Nothing changes the state between a callback and
 // the return of that call: after `transition_frame_fn` the frame closure only
-// calls `on_camera_is_changing`, after `transition_finish_fn` the finish
+// calls `on_camera_is_changing`, after `transition_end_fn` the end
 // closure only calls `on_camera_did_change`, and `update_transitions` only
 // moves the closures back.
 
@@ -111,7 +111,7 @@ impl CallbackLog {
         let frames = log.frames.clone();
         options.transition_frame_fn = Some(Rc::new(move |t: f64| frames.borrow_mut().push(t)));
         let finishes = log.finishes.clone();
-        options.transition_finish_fn = Some(Rc::new(move || finishes.set(finishes.get() + 1)));
+        options.transition_end_fn = Some(Rc::new(move |_: &TransitionEnd| finishes.set(finishes.get() + 1)));
         log
     }
 
@@ -812,11 +812,11 @@ fn default_transform() {
     }
 
     impl TransformObserver for CountingObserver {
-        fn on_camera_will_change(&self, _mode: CameraChangeMode) {
+        fn on_camera_will_change(&self, _change: CameraChange) {
             self.camera_will_change_count.set(self.camera_will_change_count.get() + 1);
         }
 
-        fn on_camera_did_change(&self, _mode: CameraChangeMode) {
+        fn on_camera_did_change(&self, _change: CameraChange) {
             self.camera_did_change_count.set(self.camera_did_change_count.get() + 1);
         }
     }
@@ -1587,11 +1587,11 @@ fn nan_screen_coordinates_are_errors() {
 
 const LINEAR: UnitBezier = UnitBezier::new(1.0 / 3.0, 1.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0);
 
-/// A finish callback that counts its calls.
-fn counting_finish(options: &mut AnimationOptions) -> Rc<Cell<u32>> {
+/// An end function that counts its calls.
+fn counting_end(options: &mut AnimationOptions) -> Rc<Cell<u32>> {
     let count = Rc::new(Cell::new(0));
     let finished = count.clone();
-    options.transition_finish_fn = Some(Rc::new(move || finished.set(finished.get() + 1)));
+    options.transition_end_fn = Some(Rc::new(move |_: &TransitionEnd| finished.set(finished.get() + 1)));
     count
 }
 
@@ -1606,14 +1606,14 @@ fn independent_camera_tracks() {
     transform.resize(Size::new(1000, 1000)).unwrap();
     transform.jump_to(&cam().with_zoom(Some(8.0)).with_center_altitude(Some(120.0)));
     let mut zoom = AnimationOptions { easing: Some(LINEAR), ..AnimationOptions::new(seconds(2)) };
-    let zoom_finished = counting_finish(&mut zoom);
+    let zoom_finished = counting_end(&mut zoom);
     transform.ease_to(&cam().with_zoom(Some(12.0)), &zoom);
     let zoom_start = transform.get_latest_transition_start();
     transform.update_transitions(zoom_start + milliseconds(500));
     assert_near(transform.get_zoom(), 9.0, 1e-5);
 
     let mut center = AnimationOptions { easing: Some(LINEAR), ..AnimationOptions::new(seconds(8)) };
-    let center_finished = counting_finish(&mut center);
+    let center_finished = counting_end(&mut center);
     transform.ease_to(&cam().with_center(Some(ll(20.0, 30.0))), &center);
     let center_start = transform.get_latest_transition_start();
     assert_eq!(zoom_finished.get(), 0);
@@ -1642,7 +1642,7 @@ fn partial_replacement_keeps_command_and_timing() {
     transform.resize(Size::new(1000, 1000)).unwrap();
     transform.jump_to(&cam().with_zoom(Some(8.0)));
     let mut animation = AnimationOptions { easing: Some(LINEAR), ..AnimationOptions::new(seconds(4)) };
-    let finished = counting_finish(&mut animation);
+    let finished = counting_end(&mut animation);
     transform.ease_to(&cam().with_zoom(Some(12.0)).with_bearing(Some(80.0)), &animation);
     let start = transform.get_latest_transition_start();
     transform.update_transitions(start + seconds(1));
@@ -1669,7 +1669,7 @@ fn flight_and_anchor_couple_center_with_their_properties() {
     transform.resize(Size::new(1000, 1000)).unwrap();
     transform.jump_to(&cam().with_zoom(Some(8.0)));
     let mut flight = AnimationOptions { easing: Some(LINEAR), ..AnimationOptions::new(seconds(4)) };
-    let flight_finished = counting_finish(&mut flight);
+    let flight_finished = counting_end(&mut flight);
     transform.fly_to(
         &cam().with_center(Some(ll(20.0, 30.0))).with_zoom(Some(12.0)).with_roll(Some(20.0)),
         &flight,
@@ -1689,7 +1689,7 @@ fn flight_and_anchor_couple_center_with_their_properties() {
     assert_eq!(flight_finished.get(), 1);
 
     let mut anchor_animation = AnimationOptions::new(seconds(4));
-    let anchor_finished = counting_finish(&mut anchor_animation);
+    let anchor_finished = counting_end(&mut anchor_animation);
     let anchor = sc(200.0, 300.0);
     let fixed = transform.screen_coordinate_to_lat_lng(&anchor, WrapMode::Wrapped).unwrap();
     transform.ease_to(&cam().with_zoom(Some(12.0)).with_anchor(Some(anchor)), &anchor_animation);
@@ -1746,7 +1746,7 @@ struct EventObserver {
 }
 
 impl TransformObserver for EventObserver {
-    fn on_camera_did_change(&self, _mode: CameraChangeMode) {
+    fn on_camera_did_change(&self, _change: CameraChange) {
         self.events.borrow_mut().push(0);
         self.changes.set(self.changes.get() + 1);
     }
@@ -1760,10 +1760,10 @@ fn partial_camera_commands_finish_together_for_still_image() {
     transform.resize(Size::new(512, 512)).unwrap();
     let push = |event: i32| {
         let observer = observer.clone();
-        Some(Rc::new(move || observer.events.borrow_mut().push(event)) as Rc<dyn Fn()>)
+        Some(Rc::new(move |_: &TransitionEnd| observer.events.borrow_mut().push(event)) as Rc<dyn Fn(&TransitionEnd)>)
     };
-    let position = AnimationOptions { transition_finish_fn: push(1), ..AnimationOptions::new(seconds(5)) };
-    let bearing = AnimationOptions { transition_finish_fn: push(2), ..AnimationOptions::new(seconds(10)) };
+    let position = AnimationOptions { transition_end_fn: push(1), ..AnimationOptions::new(seconds(5)) };
+    let bearing = AnimationOptions { transition_end_fn: push(2), ..AnimationOptions::new(seconds(10)) };
     transform.ease_to(&cam().with_center(Some(ll(20.0, 30.0))).with_zoom(Some(12.0)), &position);
     transform.ease_to(&cam().with_bearing(Some(60.0)), &bearing);
     observer.events.borrow_mut().clear();
@@ -1793,9 +1793,9 @@ fn cancel_transitions_by_id_leaves_others_running() {
     transform.resize(Size::new(1000, 1000)).unwrap();
     transform.jump_to(&cam().with_zoom(Some(8.0)));
     let mut zoom = AnimationOptions { transition_id: Some(1), ..AnimationOptions::new(seconds(4)) };
-    let zoom_finished = counting_finish(&mut zoom);
+    let zoom_finished = counting_end(&mut zoom);
     let mut bearing = AnimationOptions { transition_id: Some(2), ..AnimationOptions::new(seconds(4)) };
-    let bearing_finished = counting_finish(&mut bearing);
+    let bearing_finished = counting_end(&mut bearing);
     transform.ease_to(&cam().with_zoom(Some(12.0)), &zoom);
     transform.ease_to(&cam().with_bearing(Some(80.0)), &bearing);
     let start = transform.get_latest_transition_start();
@@ -1838,12 +1838,30 @@ fn friction(half_life: Duration, stop_speed: f64) -> MomentumDecay {
     MomentumDecay { half_life, stop_speed, ..MomentumDecay::default() }
 }
 
-/// A momentum's `finish_fn` that keeps how it ended.
-fn record_end(momentum: &mut CameraMomentum) -> Rc<Cell<Option<MomentumEnd>>> {
+/// A momentum with the C++ header's defaults, which the ported gtests use:
+/// plain friction for every part ([`CameraMomentum::default`] takes
+/// maplibre-native-ffi's C API defaults instead).
+fn header_momentum() -> CameraMomentum {
+    CameraMomentum {
+        pan_decay: MomentumDecay::FRICTION,
+        zoom_decay: MomentumDecay::FRICTION,
+        bearing_decay: MomentumDecay::FRICTION,
+        pitch_decay: MomentumDecay::FRICTION,
+        ..CameraMomentum::default()
+    }
+}
+
+/// Animation options whose end function keeps how the command ended.
+fn record_end() -> (AnimationOptions, Rc<Cell<Option<TransitionEnd>>>) {
     let ended = Rc::new(Cell::new(None));
     let record = ended.clone();
-    momentum.finish_fn = Some(Rc::new(move |end: &MomentumEnd| record.set(Some(*end))));
-    ended
+    let animation = AnimationOptions {
+        transition_end_fn: Some(Rc::new(move |end: &TransitionEnd| {
+            assert!(record.replace(Some(*end)).is_none(), "a command ends once");
+        })),
+        ..AnimationOptions::default()
+    };
+    (animation, ended)
 }
 
 fn pitch_degrees(transform: &Transform) -> f64 {
@@ -1858,16 +1876,14 @@ fn momentum_slows_each_part_by_friction() {
     transform.jump_to(&cam().with_center(Some(ll(10.0, 20.0))).with_zoom(Some(8.0)).with_pitch(Some(10.0)));
     let center = transform.get_lat_lng(WrapMode::Wrapped);
 
-    let mut momentum = CameraMomentum {
+    let momentum = CameraMomentum {
         zoom_velocity: Some(1.0),
         zoom_decay: friction(milliseconds(250), 0.01),
         bearing_velocity: Some(-10.0),
         pitch_velocity: Some(5.0),
-        ..Default::default()
+        ..header_momentum()
     };
-    let ended = record_end(&mut momentum);
-    let mut animation = AnimationOptions::default();
-    let finished = counting_finish(&mut animation);
+    let (animation, ended) = record_end();
     transform.start_momentum(&momentum, &animation);
     let start = transform.get_latest_transition_start();
     assert!(transform.in_transition());
@@ -1876,7 +1892,7 @@ fn momentum_slows_each_part_by_friction() {
     let zoom_rate = friction_rate(milliseconds(250));
     transform.update_transitions(start + milliseconds(500));
     assert_near(transform.get_zoom(), 8.0 + 1.0 / zoom_rate * -(-zoom_rate * 0.5).exp_m1(), 1e-9);
-    assert_eq!(finished.get(), 0);
+    assert!(ended.get().is_none());
 
     // Each part stops at its stop speed, so it moves (v - stop) / k.
     let rate = friction_rate(milliseconds(140));
@@ -1886,9 +1902,8 @@ fn momentum_slows_each_part_by_friction() {
     assert_near(pitch_degrees(&transform), 10.0 + (5.0 - 1.0) / rate, 1e-9);
     assert_near(transform.get_lat_lng(WrapMode::Wrapped).latitude(), center.latitude(), 1e-9);
     assert_near(transform.get_lat_lng(WrapMode::Wrapped).longitude(), center.longitude(), 1e-9);
-    assert_eq!(finished.get(), 1);
     let ended = ended.get().expect("the momentum ended");
-    assert!(!ended.replaced);
+    assert_eq!(ended.outcome, TransitionOutcome::Completed);
     assert_eq!(ended.velocity.zoom, 0.0);
     assert!(!transform.in_transition());
 }
@@ -1900,7 +1915,7 @@ fn momentum_pans_its_distance_on_screen() {
     transform.resize(Size::new(1000, 1000)).unwrap();
     transform.jump_to(&cam().with_center(Some(ll(10.0, 20.0))).with_zoom(Some(8.0)));
     let center = transform.get_lat_lng(WrapMode::Wrapped);
-    let momentum = CameraMomentum { pan_velocity: Some(sc(1200.0, -500.0)), ..Default::default() };
+    let momentum = CameraMomentum { pan_velocity: Some(sc(1200.0, -500.0)), ..header_momentum() };
     transform.start_momentum(&momentum, &AnimationOptions::default());
     let start = transform.get_latest_transition_start();
     let rate = friction_rate(milliseconds(140));
@@ -1927,7 +1942,7 @@ fn momentum_follows_an_eased_glide() {
     let mut transform = new_transform();
     transform.resize(Size::new(1000, 1000)).unwrap();
     transform.jump_to(&cam().with_zoom(Some(8.0)));
-    let mut momentum = CameraMomentum {
+    let momentum = CameraMomentum {
         zoom_velocity: Some(-1.0),
         zoom_decay: MomentumDecay {
             model: MomentumDecayModel::Ease,
@@ -1936,10 +1951,10 @@ fn momentum_follows_an_eased_glide() {
             easing: MomentumEasing { x1: 1.0 / 3.0, y1: 1.0 / 3.0, x2: 2.0 / 3.0, y2: 2.0 / 3.0 },
             ..MomentumDecay::default()
         },
-        ..Default::default()
+        ..header_momentum()
     };
-    let ended = record_end(&mut momentum);
-    transform.start_momentum(&momentum, &AnimationOptions::default());
+    let (animation, ended) = record_end();
+    transform.start_momentum(&momentum, &animation);
     transform.update_transitions(transform.get_latest_transition_start() + milliseconds(250));
     assert_near(transform.get_zoom(), 8.0 - 0.5, 1e-6);
     transform.cancel_transitions();
@@ -1965,7 +1980,7 @@ fn momentum_keeps_its_anchor_in_place() {
     );
     let anchor = sc(800.0, 300.0);
     let ground = transform.screen_coordinate_to_lat_lng(&anchor, WrapMode::Wrapped).unwrap();
-    let momentum = CameraMomentum { pitch_velocity: Some(20.0), pitch_anchor: Some(anchor), ..Default::default() };
+    let momentum = CameraMomentum { pitch_velocity: Some(20.0), pitch_anchor: Some(anchor), ..header_momentum() };
     transform.start_momentum(&momentum, &AnimationOptions::default());
     transform.update_transitions(transform.get_latest_transition_start() + seconds(3));
     assert!(pitch_degrees(&transform) > 20.0);
@@ -1986,7 +2001,7 @@ fn momentum_caps_its_distance() {
     let momentum = CameraMomentum {
         zoom_velocity: Some(50.0),
         zoom_decay: MomentumDecay { max_distance: 2.5, ..MomentumDecay::default() },
-        ..Default::default()
+        ..header_momentum()
     };
     transform.start_momentum(&momentum, &AnimationOptions::default());
     transform.update_transitions(transform.get_latest_transition_start() + seconds(3));
@@ -1999,19 +2014,19 @@ fn momentum_caps_its_distance() {
 fn momentum_reports_its_speed_when_cancelled() {
     let mut transform = new_transform();
     transform.resize(Size::new(1000, 1000)).unwrap();
-    let mut momentum = CameraMomentum {
+    let momentum = CameraMomentum {
         pan_velocity: Some(sc(1000.0, 0.0)),
         pan_decay: friction(seconds(1), 1.0),
         zoom_velocity: Some(1.0),
         zoom_decay: friction(seconds(1), 0.01),
-        ..Default::default()
+        ..header_momentum()
     };
-    let ended = record_end(&mut momentum);
-    transform.start_momentum(&momentum, &AnimationOptions::default());
+    let (animation, ended) = record_end();
+    transform.start_momentum(&momentum, &animation);
     transform.update_transitions(transform.get_latest_transition_start() + seconds(1));
     transform.cancel_transitions();
     let ended = ended.get().expect("the momentum ended");
-    assert!(!ended.replaced);
+    assert_eq!(ended.outcome, TransitionOutcome::Cancelled);
     // After one half-life, each part moves at half its release speed.
     assert_near(ended.velocity.pan.x, 500.0, 1e-9);
     assert_eq!(ended.velocity.pan.y, 0.0);
@@ -2025,15 +2040,15 @@ fn momentum_parts_give_way_to_commands() {
     let mut transform = new_transform();
     transform.resize(Size::new(1000, 1000)).unwrap();
     transform.jump_to(&cam().with_zoom(Some(8.0)));
-    let mut momentum = CameraMomentum {
+    let momentum = CameraMomentum {
         pan_velocity: Some(sc(1000.0, 0.0)),
         pan_decay: friction(seconds(1), 1.0),
         zoom_velocity: Some(1.0),
         zoom_decay: friction(seconds(1), 0.01),
-        ..Default::default()
+        ..header_momentum()
     };
-    let ended = record_end(&mut momentum);
-    transform.start_momentum(&momentum, &AnimationOptions::default());
+    let (animation, ended) = record_end();
+    transform.start_momentum(&momentum, &animation);
     let start = transform.get_latest_transition_start();
     assert!(transform.is_panning());
     assert!(transform.is_scaling());
@@ -2048,7 +2063,7 @@ fn momentum_parts_give_way_to_commands() {
     assert_ne!(transform.get_lat_lng(WrapMode::Wrapped).longitude(), before.longitude());
 
     transform.jump_to(&cam().with_center(Some(ll(10.0, 20.0))));
-    assert!(ended.get().expect("the momentum ended").replaced);
+    assert_eq!(ended.get().expect("the momentum ended").outcome, TransitionOutcome::Replaced);
     assert!(!transform.in_transition());
 }
 
@@ -2063,10 +2078,10 @@ fn momentum_settles_on_targets() {
     let momentum = CameraMomentum {
         bearing_velocity: Some(1.0 + 4.0 * rate),
         bearing_snap: Some(MomentumSnap { spacing: 90.0, tolerance: 7.0, duration: milliseconds(200), offset: 0.0 }),
-        ..Default::default()
+        ..header_momentum()
     };
     let mut animation = AnimationOptions::default();
-    let finished = counting_finish(&mut animation);
+    let finished = counting_end(&mut animation);
     transform.start_momentum(&momentum, &animation);
     let start = transform.get_latest_transition_start();
     transform.update_transitions(start + seconds(1));
@@ -2084,7 +2099,7 @@ fn momentum_settles_on_targets() {
         bearing_snap: Some(MomentumSnap { spacing: 360.0, tolerance: 7.0, ..MomentumSnap::default() }),
         zoom_snap: Some(MomentumSnap { spacing: 1.0, tolerance: 0.5, ..MomentumSnap::default() }),
         pitch_snap: Some(MomentumSnap { spacing: 90.0, tolerance: 7.0, ..MomentumSnap::default() }),
-        ..Default::default()
+        ..header_momentum()
     };
     transform.jump_to(&cam().with_bearing(Some(355.0)).with_zoom(Some(7.3)).with_pitch(Some(30.0)));
     transform.start_momentum(&snap_only, &animation);
@@ -2098,7 +2113,7 @@ fn momentum_settles_on_targets() {
     // target around it: 270 is 1 degree from -89.
     let uneven = CameraMomentum {
         bearing_snap: Some(MomentumSnap { spacing: 270.0, tolerance: 7.0, ..MomentumSnap::default() }),
-        ..Default::default()
+        ..header_momentum()
     };
     transform.jump_to(&cam().with_bearing(Some(-89.0)));
     transform.start_momentum(&uneven, &animation);
@@ -2112,14 +2127,14 @@ fn momentum_stops_a_part_that_limits_hold() {
     transform.resize(Size::new(1000, 1000)).unwrap();
     transform.set_max_zoom(10.0);
     transform.jump_to(&cam().with_zoom(Some(10.0)).with_pitch(Some(0.0)));
-    let mut momentum = CameraMomentum {
+    let momentum = CameraMomentum {
         zoom_velocity: Some(1.0),
         zoom_decay: MomentumDecay { stop_speed: 0.01, ..MomentumDecay::default() },
         pitch_velocity: Some(-20.0),
-        ..Default::default()
+        ..header_momentum()
     };
-    let ended = record_end(&mut momentum);
-    transform.start_momentum(&momentum, &AnimationOptions::default());
+    let (animation, ended) = record_end();
+    transform.start_momentum(&momentum, &animation);
     transform.update_transitions(transform.get_latest_transition_start() + milliseconds(20));
     assert!(!transform.in_transition());
     assert_eq!(ended.get().expect("the momentum ended").velocity.zoom, 0.0);
@@ -2143,4 +2158,492 @@ fn momentum_ignores_slow_releases_and_bad_decays() {
     assert_eq!(capped.distance, max.distance);
     assert_eq!(capped.duration, max.duration);
     assert_near(max.distance, 9990.0 / friction_rate(milliseconds(140)), 1e-9);
+}
+
+#[test]
+fn momentum_parts_default_to_maplibre_native_ffis_defaults() {
+    let mut transform = new_transform();
+    transform.resize(Size::new(1000, 1000)).unwrap();
+    transform.jump_to(&cam().with_center(Some(ll(0.0, 0.0))).with_zoom(Some(8.0)));
+    let default = CameraMomentum::default();
+    assert_eq!(default.pan_decay, MomentumDecay::PAN);
+    assert_eq!(default.zoom_decay, MomentumDecay::ZOOM);
+    assert_eq!(default.bearing_decay, MomentumDecay::BEARING);
+    assert_eq!(default.pitch_decay, MomentumDecay::PITCH);
+
+    // Slower than the pan's 200 px/s minimum: no glide.
+    transform.start_momentum(
+        &CameraMomentum { pan_velocity: Some(sc(150.0, 0.0)), ..CameraMomentum::default() },
+        &AnimationOptions::default(),
+    );
+    assert!(!transform.in_transition());
+
+    // Faster than its 10 000 px/s cap glides as the cap does.
+    let glide = |speed: f64| {
+        let mut transform = new_transform();
+        transform.resize(Size::new(1000, 1000)).unwrap();
+        transform.jump_to(&cam().with_center(Some(ll(0.0, 0.0))).with_zoom(Some(8.0)));
+        let start = transform.get_lat_lng(WrapMode::Unwrapped);
+        transform.start_momentum(
+            &CameraMomentum { pan_velocity: Some(sc(speed, 0.0)), ..CameraMomentum::default() },
+            &AnimationOptions::default(),
+        );
+        transform.update_transitions(TimePoint::max());
+        transform.get_lat_lng(WrapMode::Unwrapped).longitude() - start.longitude()
+    };
+    assert_near(glide(20_000.0), glide(10_000.0), 1e-9);
+    assert!(glide(10_000.0).abs() > glide(5_000.0).abs());
+}
+
+/// A transform 1000 px square at zoom 8, for the outcome tests.
+fn outcome_transform() -> Transform {
+    let mut transform = new_transform();
+    transform.resize(Size::new(1000, 1000)).unwrap();
+    transform.jump_to(&cam().with_center(Some(ll(0.0, 0.0))).with_zoom(Some(8.0)));
+    transform
+}
+
+fn outcome(ended: &Rc<Cell<Option<TransitionEnd>>>) -> Option<TransitionOutcome> {
+    ended.get().map(|end| end.outcome)
+}
+
+#[test]
+fn an_ease_that_runs_to_its_end_completes() {
+    let mut transform = outcome_transform();
+    let (animation, ended) = record_end();
+    transform.ease_to(&cam().with_zoom(Some(10.0)), &AnimationOptions { duration: Some(seconds(1)), ..animation });
+    let start = transform.get_latest_transition_start();
+    transform.update_transitions(start + milliseconds(500));
+    assert_eq!(outcome(&ended), None);
+    transform.update_transitions(start + seconds(1));
+    assert_eq!(outcome(&ended), Some(TransitionOutcome::Completed));
+    assert_eq!(ended.get().unwrap().velocity, CameraVelocity::default());
+}
+
+#[test]
+fn cancelling_reports_cancelled_and_by_id_only_the_matching_commands() {
+    let mut transform = outcome_transform();
+    let (zoom, zoom_ended) = record_end();
+    let (bearing, bearing_ended) = record_end();
+    transform.ease_to(
+        &cam().with_zoom(Some(10.0)),
+        &AnimationOptions { duration: Some(seconds(1)), transition_id: Some(1), ..zoom },
+    );
+    transform.ease_to(&cam().with_bearing(Some(90.0)), &AnimationOptions { duration: Some(seconds(1)), ..bearing });
+    assert!(transform.cancel_transitions_with_id(1));
+    assert_eq!(outcome(&zoom_ended), Some(TransitionOutcome::Cancelled));
+    assert_eq!(outcome(&bearing_ended), None);
+    transform.cancel_transitions();
+    assert_eq!(outcome(&bearing_ended), Some(TransitionOutcome::Cancelled));
+}
+
+#[test]
+fn a_command_whose_fields_a_later_one_takes_is_replaced() {
+    let mut transform = outcome_transform();
+    let (first, first_ended) = record_end();
+    transform.ease_to(&cam().with_zoom(Some(10.0)), &AnimationOptions { duration: Some(seconds(1)), ..first });
+    transform.ease_to(&cam().with_zoom(Some(6.0)), &AnimationOptions::new(seconds(1)));
+    assert_eq!(outcome(&first_ended), Some(TransitionOutcome::Replaced));
+}
+
+#[test]
+fn a_command_that_keeps_some_fields_completes_or_is_cancelled() {
+    // Losing the zoom leaves the bearing animating to its end: completed.
+    let mut transform = outcome_transform();
+    let (both, ended) = record_end();
+    transform.ease_to(
+        &cam().with_zoom(Some(10.0)).with_bearing(Some(90.0)),
+        &AnimationOptions { duration: Some(seconds(1)), ..both.clone() },
+    );
+    let start = transform.get_latest_transition_start();
+    transform.jump_to(&cam().with_zoom(Some(6.0)));
+    assert_eq!(outcome(&ended), None);
+    transform.update_transitions(start + seconds(1));
+    assert_eq!(outcome(&ended), Some(TransitionOutcome::Completed));
+
+    // Losing the zoom, then a cancellation of the bearing: cancelled.
+    let mut transform = outcome_transform();
+    let (both, ended) = record_end();
+    transform.ease_to(
+        &cam().with_zoom(Some(10.0)).with_bearing(Some(90.0)),
+        &AnimationOptions { duration: Some(seconds(1)), ..both },
+    );
+    transform.jump_to(&cam().with_zoom(Some(6.0)));
+    transform.cancel_transitions();
+    assert_eq!(outcome(&ended), Some(TransitionOutcome::Cancelled));
+}
+
+#[test]
+fn a_command_that_fails_before_it_moves_is_cancelled() {
+    let mut transform = outcome_transform();
+    let (animation, ended) = record_end();
+    transform.ease_to(&cam().with_zoom(Some(f64::NAN)), &animation);
+    assert_eq!(outcome(&ended), Some(TransitionOutcome::Cancelled));
+    assert_near(transform.get_zoom(), 8.0, 1e-9);
+}
+
+#[test]
+fn dropping_the_transform_closes_its_commands() {
+    let mut transform = outcome_transform();
+    let (animation, ended) = record_end();
+    transform.ease_to(&cam().with_zoom(Some(10.0)), &AnimationOptions { duration: Some(seconds(1)), ..animation });
+    drop(transform);
+    assert_eq!(outcome(&ended), Some(TransitionOutcome::Closed));
+}
+
+/// Records each will-change ('w') and did-change ('d') with its change.
+#[derive(Default)]
+struct ChangeObserver {
+    changes: RefCell<Vec<(char, CameraChange)>>,
+}
+
+impl ChangeObserver {
+    fn take(&self) -> Vec<(char, CameraChange)> {
+        std::mem::take(&mut *self.changes.borrow_mut())
+    }
+}
+
+impl TransformObserver for ChangeObserver {
+    fn on_camera_will_change(&self, change: CameraChange) {
+        self.changes.borrow_mut().push(('w', change));
+    }
+    fn on_camera_did_change(&self, change: CameraChange) {
+        self.changes.borrow_mut().push(('d', change));
+    }
+}
+
+fn change(mode: CameraChangeMode, source: CameraChangeSource) -> CameraChange {
+    CameraChange { mode, source }
+}
+
+#[test]
+fn camera_changes_report_whether_a_command_or_a_momentum_made_them() {
+    use CameraChangeMode::{Animated, Immediate};
+    use CameraChangeSource::{Command, Momentum};
+    let observer = Rc::new(ChangeObserver::default());
+    let mut transform = Transform::new(observer.clone(), ConstrainMode::HeightOnly, ViewportMode::Default);
+    transform.resize(Size::new(1000, 1000)).unwrap();
+    transform.jump_to(&cam().with_center(Some(ll(0.0, 0.0))).with_zoom(Some(8.0)));
+    observer.take();
+
+    // A jump starts and ends at once.
+    transform.jump_to(&cam().with_zoom(Some(9.0)));
+    assert_eq!(observer.take(), [('w', change(Immediate, Command)), ('d', change(Immediate, Command))]);
+
+    // An ease and a momentum run together; each change that ends one
+    // reports that one's source.
+    transform.ease_to(&cam().with_zoom(Some(10.0)), &AnimationOptions::new(seconds(1)));
+    let ease_start = transform.get_latest_transition_start();
+    transform.start_momentum(
+        // A 1.4 s glide, which outlasts the ease.
+        &CameraMomentum { pan_velocity: Some(sc(10_000.0, 0.0)), ..CameraMomentum::default() },
+        &AnimationOptions::default(),
+    );
+    assert_eq!(observer.take(), [('w', change(Animated, Command)), ('w', change(Animated, Momentum))]);
+    transform.update_transitions(ease_start + seconds(1));
+    assert_eq!(observer.take(), [('d', change(Animated, Command))]);
+    transform.update_transitions(TimePoint::max());
+    assert_eq!(observer.take(), [('d', change(Animated, Momentum))]);
+}
+
+fn delta(phase: GesturePhase) -> CameraDelta {
+    CameraDelta { phase, ..CameraDelta::default() }
+}
+
+#[test]
+fn a_gesture_reports_gesture_then_momentum_and_lasts_until_its_glide_ends() {
+    use CameraChangeMode::{Animated, Immediate};
+    use CameraChangeSource::{Gesture, Momentum};
+    let observer = Rc::new(ChangeObserver::default());
+    let mut transform = Transform::new(observer.clone(), ConstrainMode::HeightOnly, ViewportMode::Default);
+    transform.resize(Size::new(1000, 1000)).unwrap();
+    transform.jump_to(&cam().with_center(Some(ll(0.0, 0.0))).with_zoom(Some(8.0)));
+    observer.take();
+
+    let pan = |phase| CameraDelta { offset: Some(sc(10.0, 0.0)), ..delta(phase) };
+    transform.apply_camera_delta(&pan(GesturePhase::Begin)).unwrap();
+    assert!(transform.is_gesture_in_progress());
+    transform.apply_camera_delta(&pan(GesturePhase::Update)).unwrap();
+    assert_eq!(
+        observer.take(),
+        [
+            ('w', change(Immediate, Gesture)),
+            ('d', change(Immediate, Gesture)),
+            ('w', change(Immediate, Gesture)),
+            ('d', change(Immediate, Gesture)),
+        ]
+    );
+
+    let (animation, ended) = record_end();
+    transform
+        .apply_camera_delta(&CameraDelta {
+            momentum: Some(CameraMomentum { pan_velocity: Some(sc(2000.0, 0.0)), ..CameraMomentum::default() }),
+            animation,
+            ..delta(GesturePhase::End)
+        })
+        .unwrap();
+    assert_eq!(observer.take(), [('w', change(Animated, Momentum))]);
+    // The gesture's input ended, but it lasts until its momentum does.
+    assert!(transform.is_gesture_in_progress());
+    transform.update_transitions(TimePoint::max());
+    assert_eq!(observer.take(), [('d', change(Animated, Momentum))]);
+    assert_eq!(outcome(&ended), Some(TransitionOutcome::Completed));
+    assert!(!transform.is_gesture_in_progress());
+}
+
+#[test]
+fn a_new_gesture_catches_the_last_ones_glide_and_keeps_the_gesture_going() {
+    let mut transform = outcome_transform();
+    transform.apply_camera_delta(&CameraDelta { offset: Some(sc(10.0, 0.0)), ..delta(GesturePhase::Begin) }).unwrap();
+    let (animation, ended) = record_end();
+    transform
+        .apply_camera_delta(&CameraDelta {
+            momentum: Some(CameraMomentum { pan_velocity: Some(sc(2000.0, 0.0)), ..CameraMomentum::default() }),
+            animation,
+            ..delta(GesturePhase::End)
+        })
+        .unwrap();
+    let start = transform.get_latest_transition_start();
+    transform.update_transitions(start + milliseconds(100));
+
+    // A press mid-glide: the glide is cancelled, with its speed, and the new
+    // gesture is in progress.
+    transform.apply_camera_delta(&CameraDelta { offset: Some(sc(1.0, 0.0)), ..delta(GesturePhase::Begin) }).unwrap();
+    let end = ended.get().expect("the glide ended");
+    assert_eq!(end.outcome, TransitionOutcome::Cancelled);
+    assert!(end.velocity.pan.x > 500.0 && end.velocity.pan.x < 2000.0, "{:?}", end.velocity);
+    assert!(transform.is_gesture_in_progress());
+    assert!(!transform.in_transition());
+
+    // An earlier gesture's momentum can't end a later gesture: start a glide
+    // for the new one, then begin a third gesture with Update, which keeps
+    // the glide; the glide's end leaves the third gesture in progress.
+    transform
+        .apply_camera_delta(&CameraDelta {
+            momentum: Some(CameraMomentum { pan_velocity: Some(sc(2000.0, 0.0)), ..CameraMomentum::default() }),
+            ..delta(GesturePhase::End)
+        })
+        .unwrap();
+    transform.apply_camera_delta(&CameraDelta { scale: Some(1.01), ..delta(GesturePhase::Update) }).unwrap();
+    assert!(transform.in_transition());
+    transform.update_transitions(TimePoint::max());
+    assert!(!transform.in_transition());
+    assert!(transform.is_gesture_in_progress());
+    transform.apply_camera_delta(&delta(GesturePhase::End)).unwrap();
+    assert!(!transform.is_gesture_in_progress());
+}
+
+#[test]
+fn only_the_parts_a_gesture_changed_settle() {
+    let snaps = CameraMomentum {
+        zoom_snap: Some(MomentumSnap::ZOOM),
+        bearing_snap: Some(MomentumSnap { duration: Duration::zero(), ..MomentumSnap::BEARING }),
+        pitch_snap: Some(MomentumSnap::PITCH),
+        ..CameraMomentum::default()
+    };
+    let settled = |gesture: CameraDelta| {
+        let mut transform = outcome_transform();
+        transform.jump_to(&cam().with_zoom(Some(8.3)).with_bearing(Some(3.0)).with_pitch(Some(4.0)));
+        transform.apply_camera_delta(&CameraDelta { phase: GesturePhase::Begin, ..gesture }).unwrap();
+        transform.apply_camera_delta(&CameraDelta { momentum: Some(snaps), ..delta(GesturePhase::End) }).unwrap();
+        transform.update_transitions(TimePoint::max());
+        (transform.get_zoom(), bearing_degrees(&transform), pitch_degrees(&transform))
+    };
+
+    // A pan changes none of them: nothing settles.
+    let (zoom, bearing, pitch) = settled(CameraDelta { offset: Some(sc(10.0, 0.0)), ..CameraDelta::default() });
+    assert_near(zoom, 8.3, 1e-9);
+    assert_near(bearing, 3.0, 1e-9);
+    assert_near(pitch, 4.0, 1e-9);
+
+    // A turn settles the bearing alone.
+    let (zoom, bearing, pitch) = settled(CameraDelta { bearing: Some(1.0), ..CameraDelta::default() });
+    assert_near(zoom, 8.3, 1e-9);
+    assert_near(bearing, 0.0, 1e-9);
+    assert_near(pitch, 4.0, 1e-9);
+}
+
+#[test]
+fn a_delta_pans_and_zooms_around_its_anchor_and_ends_once() {
+    let mut transform = outcome_transform();
+    let anchor = sc(800.0, 300.0);
+    // The pan applies first and brings this ground under the anchor, which
+    // the zoom and turn then hold in place.
+    let ground =
+        transform.screen_coordinate_to_lat_lng(&sc(anchor.x + 50.0, anchor.y - 20.0), WrapMode::Unwrapped).unwrap();
+    let (animation, ended) = record_end();
+    transform
+        .apply_camera_delta(&CameraDelta {
+            offset: Some(sc(-50.0, 20.0)),
+            scale: Some(2.0),
+            bearing: Some(90.0),
+            anchor: Some(anchor),
+            animation,
+            ..CameraDelta::default()
+        })
+        .unwrap();
+    assert_eq!(outcome(&ended), Some(TransitionOutcome::Completed));
+    assert_near(transform.get_zoom(), 9.0, 1e-9);
+    assert_near(bearing_degrees(&transform), 90.0, 1e-9);
+    let under = transform.lat_lng_to_screen_coordinate(&ground);
+    assert_near(under.x, anchor.x, 1e-6);
+    assert_near(under.y, anchor.y, 1e-6);
+
+    // Animated, both commands end the delta's one end function together.
+    let (animation, ended) = record_end();
+    transform
+        .apply_camera_delta(&CameraDelta {
+            offset: Some(sc(10.0, 0.0)),
+            scale: Some(2.0),
+            animation: AnimationOptions { duration: Some(seconds(1)), ..animation },
+            ..CameraDelta::default()
+        })
+        .unwrap();
+    let start = transform.get_latest_transition_start();
+    transform.update_transitions(start + milliseconds(500));
+    assert_eq!(outcome(&ended), None);
+    transform.update_transitions(start + seconds(1));
+    assert_eq!(outcome(&ended), Some(TransitionOutcome::Completed));
+}
+
+#[test]
+fn a_turn_around_an_anchor_keeps_the_ground_under_it() {
+    let mut transform = outcome_transform();
+    let anchor = sc(700.0, 200.0);
+    let ground = transform.screen_coordinate_to_lat_lng(&anchor, WrapMode::Unwrapped).unwrap();
+    transform
+        .apply_camera_delta(&CameraDelta { bearing: Some(90.0), anchor: Some(anchor), ..CameraDelta::default() })
+        .unwrap();
+    assert_near(bearing_degrees(&transform), 90.0, 1e-9);
+    let under = transform.lat_lng_to_screen_coordinate(&ground);
+    assert_near(under.x, anchor.x, 1e-6);
+    assert_near(under.y, anchor.y, 1e-6);
+}
+
+#[test]
+fn camera_deltas_are_validated_as_maplibre_native_ffi_validates_them() {
+    let mut transform = outcome_transform();
+    let mut check = |delta: CameraDelta| transform.apply_camera_delta(&delta);
+    assert_eq!(
+        check(CameraDelta { offset: Some(sc(f64::NAN, 0.0)), ..CameraDelta::default() }),
+        Err(CameraError::NotFinite)
+    );
+    assert_eq!(check(CameraDelta { scale: Some(0.0), ..CameraDelta::default() }), Err(CameraError::InvalidScale));
+    assert_eq!(
+        check(CameraDelta { bearing: Some(f64::INFINITY), ..CameraDelta::default() }),
+        Err(CameraError::NotFinite)
+    );
+    assert_eq!(
+        check(CameraDelta { anchor: Some(sc(1.0, 1.0)), offset: Some(sc(1.0, 0.0)), ..CameraDelta::default() }),
+        Err(CameraError::AnchorWithoutChange)
+    );
+    assert_eq!(
+        check(CameraDelta { momentum: Some(CameraMomentum::default()), ..delta(GesturePhase::Update) }),
+        Err(CameraError::MomentumOutsideEnd)
+    );
+    assert_eq!(
+        check(CameraDelta {
+            momentum: Some(CameraMomentum::default()),
+            animation: AnimationOptions::new(seconds(1)),
+            ..delta(GesturePhase::End)
+        }),
+        Err(CameraError::MomentumWithAnimation)
+    );
+    assert_eq!(
+        check(CameraDelta {
+            offset: Some(sc(1.0, 0.0)),
+            scale: Some(2.0),
+            anchor: Some(sc(1.0, 1.0)),
+            animation: AnimationOptions::new(seconds(1)),
+            ..CameraDelta::default()
+        }),
+        Err(CameraError::AnimatedAnchoredOffset)
+    );
+    // A rejected delta changes nothing; an empty one ends at once.
+    assert_near(transform.get_zoom(), 8.0, 1e-9);
+    let (animation, ended) = record_end();
+    transform.apply_camera_delta(&CameraDelta { animation, ..CameraDelta::default() }).unwrap();
+    assert_eq!(outcome(&ended), Some(TransitionOutcome::Completed));
+}
+
+#[test]
+fn an_update_with_a_phase_reports_a_gesture_and_begin_cancels_animations() {
+    use CameraChangeSource::Gesture;
+    let observer = Rc::new(ChangeObserver::default());
+    let mut transform = Transform::new(observer.clone(), ConstrainMode::HeightOnly, ViewportMode::Default);
+    transform.resize(Size::new(1000, 1000)).unwrap();
+    let (animation, ended) = record_end();
+    transform.ease_to(&cam().with_zoom(Some(6.0)), &AnimationOptions { duration: Some(seconds(1)), ..animation });
+
+    // Update keeps the running animation.
+    transform.update_camera(&CameraUpdate {
+        mode: CameraUpdateMode::Ease,
+        camera: cam().with_bearing(Some(30.0)),
+        animation: AnimationOptions::new(milliseconds(300)),
+        phase: GesturePhase::End,
+    });
+    assert_eq!(outcome(&ended), None);
+    assert!(!transform.is_gesture_in_progress());
+    assert_eq!(observer.take().last().map(|(_, c)| c.source), Some(Gesture));
+
+    // Begin cancels it.
+    transform.update_camera(&CameraUpdate {
+        camera: cam().with_pitch(Some(10.0)),
+        phase: GesturePhase::Begin,
+        ..CameraUpdate::default()
+    });
+    assert_eq!(outcome(&ended), Some(TransitionOutcome::Cancelled));
+    assert!(transform.is_gesture_in_progress());
+    assert_near(pitch_degrees(&transform), 10.0, 1e-9);
+}
+
+#[test]
+fn with_a_frame_time_commands_start_at_the_latest_frame() {
+    let mut transform = outcome_transform();
+    let frame = Clock::now();
+    transform.set_frame_time(Some(frame));
+    // Made between frames, the ease starts at the latest frame's time, so
+    // the next frame shows it one frame in.
+    let linear = UnitBezier::new(0.0, 0.0, 1.0, 1.0);
+    transform.ease_to(
+        &cam().with_zoom(Some(9.0)),
+        &AnimationOptions { duration: Some(milliseconds(160)), easing: Some(linear), ..AnimationOptions::default() },
+    );
+    assert_eq!(transform.get_latest_transition_start(), frame);
+    transform.update_transitions(frame + milliseconds(16));
+    assert_near(transform.get_zoom(), 8.1, 1e-4);
+
+    // A momentum starts there too.
+    transform.start_momentum(
+        &CameraMomentum { pan_velocity: Some(sc(1000.0, 0.0)), ..CameraMomentum::default() },
+        &AnimationOptions::default(),
+    );
+    assert_eq!(transform.get_latest_transition_start(), frame);
+
+    // Without one, commands start at Clock::now().
+    transform.set_frame_time(None);
+    let before = Clock::now();
+    transform.ease_to(&cam().with_bearing(Some(10.0)), &AnimationOptions::new(seconds(1)));
+    assert!(transform.get_latest_transition_start() >= before);
+}
+
+#[test]
+fn a_stale_frame_time_doesnt_start_commands_in_the_past() {
+    let mut transform = outcome_transform();
+    // The host set a frame time a second ago and has drawn no frame since.
+    transform.set_frame_time(Some(Clock::now() - seconds(1)));
+    assert_eq!(transform.frame_time(), None);
+    let before = Clock::now();
+    transform.ease_to(&cam().with_zoom(Some(9.0)), &AnimationOptions::new(milliseconds(300)));
+    let start = transform.get_latest_transition_start();
+    assert!(start >= before, "{start:?} before {before:?}");
+    // So the ease hasn't run its course by the next frame.
+    transform.update_transitions(start + milliseconds(16));
+    assert!(transform.in_transition());
+    assert!(transform.get_zoom() < 9.0);
+
+    // A fresh one is used, from a future frame too.
+    let fresh = Clock::now() + milliseconds(5);
+    transform.set_frame_time(Some(fresh));
+    assert_eq!(transform.frame_time(), Some(fresh));
 }

@@ -11,10 +11,11 @@ pub mod mode;
 pub mod projection_mode;
 
 pub use bound_options::BoundOptions;
-pub use camera::{AnimationOptions, CameraOptions};
-pub use camera_momentum::{
-    CameraMomentum, MomentumDecay, MomentumDecayModel, MomentumEasing, MomentumEnd, MomentumSnap, MomentumVelocity,
+pub use camera::{
+    AnimationOptions, CameraDelta, CameraError, CameraOptions, CameraUpdate, CameraUpdateMode, CameraVelocity,
+    GesturePhase, TransitionEnd, TransitionOutcome,
 };
+pub use camera_momentum::{CameraMomentum, MomentumDecay, MomentumDecayModel, MomentumEasing, MomentumSnap};
 pub use mode::{ConstrainMode, MapDebugOptions, MapMode, TileLodMode, ViewportMode};
 pub use projection_mode::ProjectionMode;
 pub mod tile_coordinate;

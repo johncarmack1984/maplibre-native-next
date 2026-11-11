@@ -35,13 +35,13 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use mln_actor::{RunLoop, Timer};
-use mln_gestures::{Button, GestureRecognizer, Input, Modifiers, PointerKind, WheelUnit};
+use mln_gestures::{Button, GestureRecognizer, Input, Modifiers, PointerKind, WheelDelta};
 use mln_gfx::{BackendScope, RendererBackend, ScopeType};
 use mln_map::{
-    AnimationOptions, BoundOptions, CameraOptions, Map, MapDebugOptions, MapObserver, NorthOrientation,
-    RenderFrameStatus, TileLodMode,
+    AnimationOptions, BoundOptions, CameraDelta, CameraOptions, CameraUpdate, CameraUpdateMode, GesturePhase, Map,
+    MapDebugOptions, MapObserver, NorthOrientation, RenderFrameStatus, TileLodMode,
 };
-use mln_util::chrono::Duration;
+use mln_util::chrono::{Clock, Duration};
 use mln_util::geo::{LatLng, ScreenCoordinate};
 use mln_util::logging::{Event, Log};
 use mln_util::size::Size;
@@ -169,7 +169,7 @@ const HELP: &str = "
 - Mouse drag to pan; release while moving to glide
 - Right mouse drag, or `Control` + mouse drag, to rotate and tilt
 - Hold `Shift` + mouse drag to zoom to a box (the box isn't drawn)
-- Scroll to zoom; double click to zoom in, `Shift` + double click to zoom out
+- Scroll to zoom (a wheel notch eases a third of a level); double click to zoom in, `Shift` + double click to zoom out
 
 - Press `Tab` to cycle through the map debug options
 - Press `F6` to cycle through Tile LOD modes
@@ -430,8 +430,18 @@ fn log_error(result: Result<(), String>) {
     }
 }
 
-/// A wheel notch in pixels (see `on_scroll`): 25 of GL JS's wheel steps.
-const WHEEL_NOTCH_PX: f64 = 25.0 * 4.000_244_140_625;
+/// A GLFW scroll offset (downward positive) as the recognizer's wheel delta.
+/// A whole offset is a wheel's notches on every platform: X11's buttons 4
+/// and 5, a standard Win32 detent (120ths), Wayland's and Cocoa's wheels.
+/// Fractional offsets differ:
+/// - Cocoa's precise deltas (trackpads, smooth wheels) and Wayland's axis
+///   events are logical pixels, which GLFW divides by 10;
+/// - Win32's are high-resolution wheels and precision touchpads in 120ths of
+///   a notch, which GLFW can't tell apart: notches, eased proportionally.
+fn wheel_delta(platform: glfw::Platform, offset: f64) -> WheelDelta {
+    let pixels = matches!(platform, glfw::Platform::MacOS | glfw::Platform::Wayland);
+    if offset.fract() == 0.0 || !pixels { WheelDelta::Notches(offset) } else { WheelDelta::Pixels(offset * 10.0) }
+}
 
 /// The recognizer's modifiers for GLFW's.
 fn modifiers(mods: glfw::Modifiers) -> Modifiers {
@@ -445,6 +455,16 @@ fn modifiers(mods: glfw::Modifiers) -> Modifiers {
 
 fn animation_ms(ms: i64) -> AnimationOptions {
     AnimationOptions::new(Duration::from_millis(ms))
+}
+
+/// `+` and `-`: the C++ binding's 500 ms scale around the cursor.
+fn key_zoom(scale: f64, x: f64, y: f64) -> CameraDelta {
+    CameraDelta {
+        scale: Some(scale),
+        anchor: Some(ScreenCoordinate::new(x, y)),
+        animation: animation_ms(500),
+        ..CameraDelta::default()
+    }
 }
 
 impl ViewState {
@@ -486,12 +506,24 @@ impl ViewState {
         }
     }
 
-    /// Lets the recognizer end gestures that time out (a trackpad zoom's
-    /// hold), once a frame tick.
+    /// One of the C++ bindings' eased steps, through the recognizer, so the
+    /// camera reports it as a gesture and it doesn't end a drag or lose a
+    /// running notch ease's zoom.
+    fn key_step(&mut self, step: CameraDelta) {
+        if let Some(map) = self.map.clone() {
+            log_error(self.gestures.step(&mut *map.borrow_mut(), step).map_err(|e| format!("{e:?}")));
+        }
+    }
+
+    /// Starts a frame tick: the map samples its animations at this frame's
+    /// time, and the recognizer steps a wheel's eased zoom and ends gestures
+    /// that time out.
     fn frame_gestures(&mut self) {
         if let Some(map) = self.map.clone() {
+            let mut map = map.borrow_mut();
+            map.set_frame_time(Some(Clock::now()));
             let now = self.glfw.get_time() * 1000.0;
-            self.gestures.frame(&mut *map.borrow_mut(), now);
+            self.gestures.frame(&mut *map, now);
         }
     }
 
@@ -526,11 +558,11 @@ impl ViewState {
                     }
                 }
                 Key::Tab => self.cycle_debug_options(),
-                Key::KpAdd | Key::Equal => self
-                    .with_map(|map| map.scale_by(1.1, Some(ScreenCoordinate::new(last_x, last_y)), &animation_ms(500))),
-                Key::KpSubtract | Key::Minus => self.with_map(|map| {
-                    map.scale_by(1.0 / 1.1, Some(ScreenCoordinate::new(last_x, last_y)), &animation_ms(500))
-                }),
+                // Port: the C++ bindings' steps, through the recognizer, so the
+                // camera reports them as the user's, as the recognizer's keys
+                // are.
+                Key::KpAdd | Key::Equal => self.key_step(key_zoom(1.1, last_x, last_y)),
+                Key::KpSubtract | Key::Minus => self.key_step(key_zoom(1.0 / 1.1, last_x, last_y)),
                 Key::X => {
                     if mods.is_empty() {
                         self.with_map(|map| {
@@ -555,10 +587,16 @@ impl ViewState {
                     }
                 }
                 Key::N => {
-                    if mods.is_empty() {
-                        self.with_map(|map| {
-                            map.ease_to(&CameraOptions::default().with_bearing(Some(0.0)), &animation_ms(500))
-                        })
+                    if mods.is_empty()
+                        && let Some(map) = self.map.clone()
+                    {
+                        let north = CameraUpdate {
+                            mode: CameraUpdateMode::Ease,
+                            camera: CameraOptions::default().with_bearing(Some(0.0)),
+                            animation: animation_ms(500),
+                            phase: GesturePhase::None,
+                        };
+                        self.gestures.step_to(&mut *map.borrow_mut(), north);
                     }
                 }
                 Key::Z => self.next_orientation(),
@@ -727,20 +765,16 @@ impl ViewState {
     }
 
     /// `onScroll`
-    fn on_scroll(&mut self, x_offset: f64, y_offset: f64, time: f64) {
-        // Port: the recognizer tells wheels from trackpads as GL JS does. A
-        // wheel notch is a whole offset (1.0): sent as 100 px, a multiple of
-        // GL JS's wheel step, so it reads as a wheel, as a browser's notch
-        // does. Fractional offsets are a trackpad or a smooth wheel, which
-        // GLFW scales to a tenth of a pixel (Cocoa, Wayland).
-        let scale = |offset: f64| {
-            if offset.fract() == 0.0 { offset * WHEEL_NOTCH_PX } else { offset * 10.0 }
-        };
-        // GLFW's positive y scrolls up, which zooms in.
-        let delta = ScreenCoordinate::new(-scale(x_offset), -scale(y_offset));
+    fn on_scroll(&mut self, _x_offset: f64, y_offset: f64, time: f64) {
+        // Port: the recognizer zooms by notches or by pixels, as the platform
+        // reports them. GLFW's positive y scrolls up, which zooms in.
+        if y_offset == 0.0 {
+            return;
+        }
+        let delta = wheel_delta(self.glfw.get_platform(), -y_offset);
         let position = ScreenCoordinate::new(self.last_x, self.last_y);
         let modifiers = self.held_modifiers();
-        self.gesture(Input::Wheel { position, delta, unit: WheelUnit::Pixel, modifiers }, time);
+        self.gesture(Input::Wheel { position, delta, modifiers }, time);
     }
 
     /// The modifier keys held now, for the events GLFW reports without them.
@@ -1025,9 +1059,13 @@ impl ViewState {
         let (name, events): (&str, Vec<WindowEvent>) = match step {
             0 => ("start", vec![]),
             1 => ("drag (pan, then glide) by (200, 100)", drag(left, none, 200.0, 100.0)),
-            2 => ("scroll up 5 wheel clicks", (0..5).map(|_| WindowEvent::Scroll(0.0, 1.0)).collect()),
-            3 => ("scroll down 2 wheel clicks", (0..2).map(|_| WindowEvent::Scroll(0.0, -1.0)).collect()),
+            2 => ("scroll up 5 wheel notches (eased)", (0..5).map(|_| WindowEvent::Scroll(0.0, 1.0)).collect()),
+            3 => ("scroll down 2 wheel notches (eased)", (0..2).map(|_| WindowEvent::Scroll(0.0, -1.0)).collect()),
             4 => (
+                "scroll a fractional burst (a trackpad on Wayland and macOS, notches elsewhere)",
+                (0..8).map(|_| WindowEvent::Scroll(0.0, 0.3)).collect(),
+            ),
+            5 => (
                 "double click (zoom in, animated)",
                 vec![
                     WindowEvent::CursorPos(cx, cy),
@@ -1037,15 +1075,15 @@ impl ViewState {
                     WindowEvent::MouseButton(left, Action::Release, none),
                 ],
             ),
-            5 => ("ctrl+drag (rotate)", drag(left, Modifiers::Control, 150.0, 0.0)),
-            6 => ("right drag up (tilt)", drag(MouseButton::Button2, none, 0.0, -120.0)),
-            7 => ("shift+drag (box zoom)", drag(left, Modifiers::Shift, 200.0, 150.0)),
-            8 => ("key Right (pan, animated)", vec![key(Key::Right, Action::Press, none)]),
-            9 => ("key N (reset north, animated)", vec![key(Key::N, Action::Release, none)]),
-            10 => ("key - (zoom out, animated)", vec![key(Key::Minus, Action::Release, none)]),
-            11 => ("key Tab (debug: tile borders)", vec![key(Key::Tab, Action::Release, none)]),
-            12 => ("key Tab (debug: parse status)", vec![key(Key::Tab, Action::Release, none)]),
-            13 => ("window resize to 800x600", {
+            6 => ("ctrl+drag (rotate)", drag(left, Modifiers::Control, 150.0, 0.0)),
+            7 => ("right drag up (tilt)", drag(MouseButton::Button2, none, 0.0, -120.0)),
+            8 => ("shift+drag (box zoom)", drag(left, Modifiers::Shift, 200.0, 150.0)),
+            9 => ("key Right (pan, animated)", vec![key(Key::Right, Action::Press, none)]),
+            10 => ("key N (reset north, animated)", vec![key(Key::N, Action::Release, none)]),
+            11 => ("key - (zoom out, animated)", vec![key(Key::Minus, Action::Release, none)]),
+            12 => ("key Tab (debug: tile borders)", vec![key(Key::Tab, Action::Release, none)]),
+            13 => ("key Tab (debug: parse status)", vec![key(Key::Tab, Action::Release, none)]),
+            14 => ("window resize to 800x600", {
                 self.window.set_size(800, 600);
                 vec![]
             }),

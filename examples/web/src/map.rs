@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use mln_actor::RunLoop;
 use mln_actor::cooperative_scheduler::CooperativeScheduler;
-use mln_gestures::{Button, GestureRecognizer, Input, Key, Modifiers, PointerKind, WheelUnit};
+use mln_gestures::{Button, GestureRecognizer, Input, Key, Modifiers, PointerKind, WheelDelta};
 use mln_gfx::{BackendScope, RendererBackend, ScopeType};
 use mln_map::{CameraOptions, Map, MapLoadError, MapObserver, MapOptions};
 use mln_renderer::text::font_face_engine;
@@ -295,11 +295,14 @@ impl WebMap {
     }
 
     /// One animation frame at `now` (milliseconds, the clock of the input
-    /// methods' `time`): ends the gestures that time out, runs the RunLoop's
+    /// methods' `time`): samples the map's animations at this frame, steps
+    /// the gestures' eased zoom and ends those that time out, runs the RunLoop's
     /// tasks, draws the map's latest update if it is new, then runs the
     /// cooperative scheduler's tasks (sprites, glyphs, raster tiles) for up
     /// to `budget_ms` and delivers their results. Returns whether it drew.
     pub fn frame(&mut self, budget_ms: f64, now: f64) -> bool {
+        // The map samples its animations at this frame's time.
+        self.map.set_frame_time(Some(mln_util::chrono::Clock::now()));
         self.gestures.frame(&mut self.map, now);
         self.run_loop.run_once();
         let drew = self.frontend.render();
@@ -366,20 +369,15 @@ impl WebMap {
         self.gestures.handle(&mut self.map, Input::PointerCancel { id }, time)
     }
 
-    /// A DOM `wheel` event: its position, deltas and `deltaMode` (0 pixels,
-    /// 1 lines, 2 pages).
-    pub fn wheel(&mut self, x: f64, y: f64, dx: f64, dy: f64, delta_mode: u32, modifiers: u32, time: f64) -> bool {
-        let unit = match delta_mode {
-            1 => WheelUnit::Line,
-            2 => WheelUnit::Page,
-            _ => WheelUnit::Pixel,
-        };
-        let input = Input::Wheel {
-            position: ScreenCoordinate::new(x, y),
-            delta: ScreenCoordinate::new(dx, dy),
-            unit,
-            modifiers: modifiers_from_bits(modifiers),
-        };
+    /// A DOM `wheel` event, as the page classifies it (web/main.js): at
+    /// (`x`, `y`), `amount` notches of a mouse wheel when `kind` is
+    /// [`WHEEL_NOTCHES`], or `amount` pixels of continuous scrolling when it
+    /// is [`WHEEL_PIXELS`]; positive scrolls down.
+    pub fn wheel(&mut self, x: f64, y: f64, kind: u32, amount: f64, modifiers: u32, time: f64) -> bool {
+        debug_assert!(kind == WHEEL_NOTCHES || kind == WHEEL_PIXELS, "wheel kind {kind}");
+        let delta = if kind == WHEEL_NOTCHES { WheelDelta::Notches(amount) } else { WheelDelta::Pixels(amount) };
+        let input =
+            Input::Wheel { position: ScreenCoordinate::new(x, y), delta, modifiers: modifiers_from_bits(modifiers) };
         self.gestures.handle(&mut self.map, input, time)
     }
 
@@ -429,6 +427,11 @@ impl WebMap {
         self.frontend.0.backend.take_readback().map(|image| image.data.to_vec())
     }
 }
+
+/// `WebMap::wheel`'s `kind`, as web/main.js's `WHEEL_PIXELS` and
+/// `WHEEL_NOTCHES` send it.
+const WHEEL_PIXELS: u32 = 0;
+const WHEEL_NOTCHES: u32 = 1;
 
 /// The input methods' `modifiers`: Shift 1, Ctrl 2, Alt 4, Meta 8.
 fn modifiers_from_bits(bits: u32) -> Modifiers {

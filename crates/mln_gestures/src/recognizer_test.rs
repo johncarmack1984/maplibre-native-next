@@ -7,7 +7,7 @@
 use std::rc::Rc;
 
 use mln_map::transform::{NullTransformObserver, Transform};
-use mln_map::{ConstrainMode, ViewportMode};
+use mln_map::{ConstrainMode, MomentumSnap, ViewportMode};
 use mln_util::LatLng;
 use mln_util::chrono::{TimePoint, milliseconds};
 use mln_util::size::Size;
@@ -158,14 +158,18 @@ fn dragging_pans_and_glides_on() {
     let under = rig.project(ground);
     assert!(distance(under, p(500.0, 300.0)) < 1e-6, "{under:?}");
     rig.up(1, 500.0, 300.0);
-    assert!(!rig.camera.is_gesture_in_progress());
+    // The gesture lasts until its glide ends.
+    assert!(rig.camera.is_gesture_in_progress());
     let frames = rig.settle();
-    // 10 px every 32 ms is 312.5 px/s; the pan friction (half-life 140 ms,
-    // stopping at 10 px/s) glides (312.5 − 10) / (ln 2 / 0.14 s) = 61.1 px
-    // over ln(31.25) / (ln 2 / 0.14 s) = 695 ms.
-    assert!((42..=45).contains(&frames), "momentum runs for a while: {frames}");
+    assert!(!rig.camera.is_gesture_in_progress());
+    // 10 px every 32 ms, released a frame after the last move: the window
+    // starts at the move 112 ms before the release, 30 px back, so
+    // 267.9 px/s, as ffi's demo averages it. The pan friction (half-life
+    // 140 ms, stopping at 10 px/s) glides (267.9 − 10) / (ln 2 / 0.14 s) =
+    // 52.1 px over ln(26.79) / (ln 2 / 0.14 s) = 664 ms.
+    assert!((40..=43).contains(&frames), "momentum runs for a while: {frames}");
     let after = rig.project(ground);
-    let glide = 302.5 / (std::f64::consts::LN_2 / 0.14);
+    let glide = (30.0 / 0.112 - 10.0) / (std::f64::consts::LN_2 / 0.14);
     assert!((after.x - 500.0 - glide).abs() < 0.01, "and carries on in the same direction: {after:?}");
     assert!((after.y - 300.0).abs() < 1e-6);
     assert!(rig.input.take_events().is_empty(), "a drag isn't a click");
@@ -180,6 +184,7 @@ fn holding_still_before_release_stops_momentum() {
     rig.now += 300.0;
     rig.up(1, 450.0, 300.0);
     assert!(!rig.camera.in_transition());
+    assert!(!rig.camera.is_gesture_in_progress());
 }
 
 #[test]
@@ -293,59 +298,119 @@ fn tap_and_drag_zooms() {
     assert!((rig.zoom() - (zoom + 1.0)).abs() < 1e-9);
 }
 
+fn notches(at: ScreenCoordinate, n: f64) -> Input {
+    Input::Wheel { position: at, delta: WheelDelta::Notches(n), modifiers: Modifiers::default() }
+}
+
+fn pixels(at: ScreenCoordinate, px: f64, modifiers: Modifiers) -> Input {
+    Input::Wheel { position: at, delta: WheelDelta::Pixels(px), modifiers }
+}
+
 #[test]
-fn wheels_zoom_smoothly_and_trackpads_at_once() {
+fn a_wheel_notch_eases_a_third_of_a_level_around_the_pointer() {
     let mut rig = Rig::new();
     let zoom = rig.zoom();
     let at = p(100.0, 100.0);
     let ground = rig.unproject(at);
-    // One notch of a mouse wheel, toward the user: zoom in.
-    let wheel = |y: f64| Input::Wheel {
-        position: at,
-        delta: p(0.0, y),
-        unit: WheelUnit::Pixel,
-        modifiers: Modifiers::default(),
-    };
-    rig.send(wheel(-25.0 * WHEEL_STEP));
-    assert_eq!(rig.zoom(), zoom, "eased, not immediate");
-    let frames = rig.settle();
-    assert!((11..=13).contains(&frames), "200 ms: {frames}");
-    assert!(rig.zoom() > zoom + 0.1);
-    let under = rig.project(ground);
-    assert!(distance(under, at) < 1e-6, "{under:?}");
-
-    // A trackpad's small deltas apply at once and hold the gesture until
-    // they stop.
-    let before = rig.zoom();
-    rig.now += 1000.0;
-    rig.send(wheel(2.0));
-    assert!(rig.zoom() < before);
-    assert!(rig.camera.is_gesture_in_progress());
-    assert!(rig.frame());
+    // A notch toward the user zooms in.
+    rig.send(notches(at, -1.0));
+    assert_eq!(rig.zoom(), zoom, "the notch eases from the next frame");
+    let mut steps = Vec::new();
+    let mut last = zoom;
+    for _ in 0..13 {
+        rig.frame();
+        steps.push(rig.zoom() - last);
+        last = rig.zoom();
+        // Each step holds the anchor to within rounding, which adds up.
+        let under = rig.project(ground);
+        assert!(distance(under, at) < 1e-5, "{under:?}");
+    }
+    // 200 ms: at 13 frames of 16 ms it has arrived.
+    assert!((rig.zoom() - (zoom + 1.0 / 3.0)).abs() < 1e-9, "{}", rig.zoom() - zoom);
+    assert!(steps.iter().all(|&step| step >= 0.0), "{steps:?}");
+    assert!(steps[0] < 1.0 / 6.0, "it eases in: {steps:?}");
+    // The scroll is one gesture until 200 ms after its last event and ease.
     assert!(rig.camera.is_gesture_in_progress());
     rig.settle();
     assert!(!rig.camera.is_gesture_in_progress());
 }
 
 #[test]
-fn wheel_steps_add_to_the_zoom_they_ease_to() {
+fn a_notch_mid_ease_adds_up_without_slowing_the_zoom() {
     let mut rig = Rig::new();
     let zoom = rig.zoom();
-    let wheel = Input::Wheel {
-        position: p(400.0, 300.0),
-        delta: p(0.0, -25.0 * WHEEL_STEP),
-        unit: WheelUnit::Pixel,
-        modifiers: Modifiers::default(),
-    };
-    rig.send(wheel);
-    rig.settle();
-    let one = rig.zoom() - zoom;
-    rig.now += 1000.0;
-    rig.send(wheel);
+    let at = p(400.0, 300.0);
+    rig.send(notches(at, -1.0));
+    let mut last = zoom;
+    let mut speed = 0.0;
+    for _ in 0..6 {
+        rig.frame();
+        speed = rig.zoom() - last;
+        last = rig.zoom();
+    }
+    // A second notch 96 ms in: the zoom keeps going at least as fast.
+    rig.send(notches(at, -1.0));
     rig.frame();
-    rig.send(wheel);
+    let after = rig.zoom() - last;
+    assert!(after >= speed - 1e-9, "{after} after {speed}");
     rig.settle();
-    assert!((rig.zoom() - (zoom + 3.0 * one)).abs() < 1e-9, "{} vs {}", rig.zoom() - zoom, 3.0 * one);
+    assert!((rig.zoom() - (zoom + 2.0 / 3.0)).abs() < 1e-9, "{}", rig.zoom() - zoom);
+}
+
+#[test]
+fn pixels_zoom_at_once_and_a_pinch_three_times_as_fast() {
+    let mut rig = Rig::new();
+    let at = p(100.0, 100.0);
+    let zoom = rig.zoom();
+    rig.send(pixels(at, -30.0, Modifiers::default()));
+    assert!((rig.zoom() - (zoom + 0.1)).abs() < 1e-9, "{}", rig.zoom() - zoom);
+    let ctrl = Modifiers { ctrl: true, ..Modifiers::default() };
+    let zoom = rig.zoom();
+    rig.send(pixels(at, 10.0, ctrl));
+    assert!((rig.zoom() - (zoom - 0.1)).abs() < 1e-9, "{}", rig.zoom() - zoom);
+    // One huge delta zooms at most a level.
+    let zoom = rig.zoom();
+    rig.send(pixels(at, -10_000.0, Modifiers::default()));
+    assert!((rig.zoom() - (zoom + 1.0)).abs() < 1e-9, "{}", rig.zoom() - zoom);
+}
+
+#[test]
+fn a_slow_trackpad_start_doesnt_change_how_a_notch_zooms() {
+    // GL JS classified a scroll by its first deltas, for 400 ms: a slow
+    // trackpad start read as a trackpad and zoomed twice as fast. Here each
+    // event is what its host says.
+    let mut rig = Rig::new();
+    let zoom = rig.zoom();
+    for _ in 0..10 {
+        rig.now += 16.0;
+        rig.send(pixels(p(400.0, 300.0), -2.0, Modifiers::default()));
+    }
+    assert!((rig.zoom() - (zoom + 20.0 / 300.0)).abs() < 1e-9, "{}", rig.zoom() - zoom);
+    let zoom = rig.zoom();
+    rig.send(notches(p(400.0, 300.0), -1.0));
+    assert_eq!(rig.zoom(), zoom, "eased");
+    rig.settle();
+    assert!((rig.zoom() - (zoom + 1.0 / 3.0)).abs() < 1e-9, "{}", rig.zoom() - zoom);
+}
+
+#[test]
+fn the_scroll_zooms_around_where_the_pointer_is_now() {
+    let mut rig = Rig::new();
+    rig.send(pixels(p(100.0, 100.0), -30.0, Modifiers::default()));
+    let at = p(600.0, 400.0);
+    let ground = rig.unproject(at);
+    rig.send(pixels(at, -30.0, Modifiers::default()));
+    let under = rig.project(ground);
+    assert!(distance(under, at) < 1e-6, "{under:?}");
+}
+
+#[test]
+fn a_scroll_stops_the_cameras_animations() {
+    let mut rig = Rig::new();
+    rig.camera.ease_to(&CameraOptions::default().with_bearing(Some(45.0)), &AnimationOptions::new(milliseconds(500)));
+    rig.send(notches(p(400.0, 300.0), 1.0));
+    assert!(!rig.camera.in_transition());
+    assert!(rig.camera.is_gesture_in_progress());
 }
 
 #[test]
@@ -381,33 +446,97 @@ fn input_interrupts_animations() {
     assert!(rig.camera.in_transition());
 }
 
-#[test]
-fn flinging_a_glide_again_adds_its_speed() {
-    let mut rig = Rig::new();
-    let alone = rig.fling(100.0, 10.0);
-    // 10 px per 16 ms is 625 px/s: (625 − 10) / (ln 2 / 0.14 s) = 124 px.
-    assert!((alone - 615.0 / (std::f64::consts::LN_2 / 0.14)).abs() < 0.01, "{alone}");
+/// The pan friction's glide from `speed` px/s: (v − 10 px/s) / (ln 2 / 140 ms).
+fn glide(speed: f64) -> f64 {
+    (speed - 10.0) / (std::f64::consts::LN_2 / 0.14)
+}
 
-    // Caught 100 ms into a glide and flung again the same way, the second
-    // glide starts with what the first had left.
-    let mut rig = Rig::new();
-    rig.down(1, PointerKind::Mouse, 100.0, 300.0);
+/// Flings from `x` to the right at 10 px per 16 ms (625 px/s) and runs
+/// `frames` frames of its glide.
+fn fling_and_glide(rig: &mut Rig, x: f64, direction: f64, frames: u32) {
+    rig.down(1, PointerKind::Mouse, x, 300.0);
     for i in 1..=8 {
         rig.now += 16.0;
-        rig.to(1, 100.0 + 10.0 * f64::from(i), 300.0);
+        rig.to(1, x + direction * 10.0 * f64::from(i), 300.0);
     }
-    rig.up(1, 180.0, 300.0);
-    for _ in 0..6 {
+    rig.up(1, x + direction * 80.0, 300.0);
+    for _ in 0..frames {
         rig.frame();
     }
-    let boosted = rig.fling(300.0, 10.0);
-    assert!(boosted > alone * 1.5, "{boosted} vs {alone}");
+}
 
-    // Flung back the other way, it starts from rest.
+#[test]
+fn a_flick_that_catches_a_glide_carries_its_speed() {
     let mut rig = Rig::new();
-    rig.fling(100.0, 10.0);
-    let back = rig.fling(600.0, -10.0);
-    assert!((back + alone).abs() < 0.01, "{back}");
+    let alone = rig.fling(100.0, 10.0);
+    // 10 px per 16 ms is 625 px/s.
+    assert!((alone - glide(625.0)).abs() < 0.01, "{alone}");
+
+    // Caught 96 ms into its glide, which has slowed to 625 · 2^(−96/140)
+    // px/s, a flick the same way adds that speed, as Compose does.
+    let mut rig = Rig::new();
+    fling_and_glide(&mut rig, 100.0, 1.0, 6);
+    let again = rig.fling(300.0, 10.0);
+    let caught = 625.0 * (-0.096 / 0.14f64).exp2();
+    assert!((again - glide(625.0 + caught)).abs() < 0.01, "{again} vs {}", glide(625.0 + caught));
+
+    // A flick the other way adds nothing.
+    let mut rig = Rig::new();
+    fling_and_glide(&mut rig, 300.0, -1.0, 6);
+    let back = rig.fling(100.0, 10.0);
+    assert!((back - alone).abs() < 0.01, "{back} vs {alone}");
+
+    // Repeated flicks compound up to the pan's 10 000 px/s cap at most.
+    let mut rig = Rig::new();
+    for _ in 0..20 {
+        fling_and_glide(&mut rig, 100.0, 1.0, 1);
+    }
+    let compounded = rig.fling(300.0, 10.0);
+    assert!(compounded > again && compounded <= glide(10_000.0) + 0.01, "{compounded}");
+
+    // Off, each release glides at its own speed, as ffi's demo and GL JS do.
+    let mut rig = Rig::with(GestureOptions { carry_caught_glide: false, ..GestureOptions::DEFAULT });
+    fling_and_glide(&mut rig, 100.0, 1.0, 6);
+    let own = rig.fling(300.0, 10.0);
+    assert!((own - alone).abs() < 0.01, "{own} vs {alone}");
+}
+
+#[test]
+fn braking_before_the_release_still_glides_forward() {
+    // 50 px in 16 ms, then 2 px more 8 ms later, released 1 ms after. A
+    // least-squares quadratic read that as −2750 px/s, a glide backwards;
+    // the average is 52 px in 25 ms.
+    let mut rig = Rig::new();
+    let ground = rig.unproject(p(100.0, 300.0));
+    rig.down(1, PointerKind::Mouse, 100.0, 300.0);
+    rig.now += 16.0;
+    rig.to(1, 150.0, 300.0);
+    rig.now += 8.0;
+    rig.to(1, 152.0, 300.0);
+    rig.now += 1.0;
+    rig.up(1, 152.0, 300.0);
+    rig.settle();
+    let moved = rig.project(ground).x - 152.0;
+    assert!((moved - glide(52.0 / 0.025)).abs() < 0.01, "{moved}");
+}
+
+#[test]
+fn a_short_flick_glides_at_its_average_speed() {
+    // Speeding up, x = t² / 60 px over 60 ms: 60 px in 60 ms is 1000 px/s,
+    // though the final slope is 2000 px/s, which a least-squares quadratic
+    // reads.
+    let mut rig = Rig::new();
+    let ground = rig.unproject(p(100.0, 300.0));
+    rig.down(1, PointerKind::Mouse, 100.0, 300.0);
+    for i in 1..=6 {
+        let t = 10.0 * f64::from(i);
+        rig.now += 10.0;
+        rig.to(1, 100.0 + t * t / 60.0, 300.0);
+    }
+    rig.up(1, 160.0, 300.0);
+    rig.settle();
+    let moved = rig.project(ground).x - 160.0;
+    assert!((moved - glide(1000.0)).abs() < 0.01, "{moved}");
 }
 
 #[test]
@@ -475,4 +604,243 @@ fn shift_drag_zooms_to_a_box() {
     rig.up(1, 300.0, 300.0);
     rig.settle();
     assert!((rig.zoom() - (zoom + 1.0)).abs() < 1e-9);
+}
+
+/// Pinches out by about 0.93 levels and tilts by about 5° with two fingers,
+/// holds still so nothing glides, and lifts both; returns the zoom and pitch
+/// once everything settles.
+fn pinch_and_tilt(options: GestureOptions) -> (f64, f64) {
+    let mut rig = Rig::with(options);
+    rig.down(1, PointerKind::Touch, 300.0, 300.0);
+    rig.down(2, PointerKind::Touch, 500.0, 300.0);
+    for i in 1..=20 {
+        let half = 100.0 * (1.0 + f64::from(i) / 20.0);
+        rig.now += 16.0;
+        rig.to(1, 400.0 - half, 300.0);
+        rig.to(2, 400.0 + half, 300.0);
+        rig.frame();
+    }
+    rig.now += 100.0;
+    rig.up(1, 200.0, 300.0);
+    rig.up(2, 600.0, 300.0);
+    rig.settle();
+    rig.down(1, PointerKind::Touch, 300.0, 400.0);
+    rig.down(2, PointerKind::Touch, 500.0, 400.0);
+    for i in 1..=10 {
+        rig.now += 16.0;
+        let y = 400.0 - f64::from(i);
+        rig.to(1, 300.0, y);
+        rig.to(2, 500.0, y);
+    }
+    rig.now += 100.0;
+    rig.up(1, 300.0, 390.0);
+    rig.up(2, 500.0, 390.0);
+    rig.settle();
+    (rig.zoom(), rig.pitch())
+}
+
+#[test]
+fn zoom_and_pitch_settle_only_when_their_snaps_are_set() {
+    // Compose's defaults: zoom and pitch stay where the gesture left them.
+    let (zoom, pitch) = pinch_and_tilt(GestureOptions::DEFAULT);
+    assert!((zoom - zoom.round()).abs() > 0.05, "{zoom}");
+    assert!(pitch > 1.0, "{pitch}");
+    // ffi's C API defaults: a whole level, and flat within 7°.
+    let (zoom, pitch) = pinch_and_tilt(GestureOptions {
+        zoom_snap: Some(MomentumSnap::ZOOM),
+        pitch_snap: Some(MomentumSnap::PITCH),
+        ..GestureOptions::DEFAULT
+    });
+    assert!((zoom - zoom.round()).abs() < 1e-6, "{zoom}");
+    assert!(pitch.abs() < 1e-6, "{pitch}");
+}
+
+/// Records the source of each camera change that starts.
+#[derive(Default)]
+struct Sources(std::cell::RefCell<Vec<mln_map::CameraChangeSource>>);
+
+impl mln_map::transform::TransformObserver for Sources {
+    fn on_camera_will_change(&self, change: mln_map::CameraChange) {
+        self.0.borrow_mut().push(change.source);
+    }
+}
+
+#[test]
+fn gestures_and_their_steps_report_themselves_as_gestures() {
+    use mln_map::CameraChangeSource::{Gesture, Momentum};
+    let sources = Rc::new(Sources::default());
+    let mut rig = Rig::new();
+    rig.camera = Transform::new(sources.clone(), ConstrainMode::HeightOnly, ViewportMode::Default);
+    rig.camera.resize(Size::new(800, 600)).unwrap();
+    let take = || std::mem::take(&mut *sources.0.borrow_mut());
+    take();
+
+    // A drag and its glide.
+    rig.fling(100.0, 10.0);
+    let seen = take();
+    assert!(seen[..seen.len() - 1].iter().all(|&s| s == Gesture), "{seen:?}");
+    assert_eq!(seen.last(), Some(&Momentum));
+
+    // A key step and a double click: gestures, eased, that don't hold the
+    // gesture in progress.
+    rig.key(Key::ZoomIn, Modifiers::default());
+    assert!(!rig.camera.is_gesture_in_progress());
+    assert!(rig.camera.in_transition());
+    rig.settle();
+    assert!(take().iter().all(|&s| s == Gesture));
+    for _ in 0..2 {
+        rig.down(1, PointerKind::Mouse, 400.0, 300.0);
+        rig.now += 50.0;
+        rig.up(1, 400.0, 300.0);
+        rig.now += 50.0;
+    }
+    assert!(!rig.camera.is_gesture_in_progress());
+    rig.settle();
+    assert!(take().iter().all(|&s| s == Gesture));
+}
+
+#[test]
+fn a_cancelled_pointer_stops_the_gesture_and_the_cameras_animations() {
+    let mut rig = Rig::new();
+    rig.down(1, PointerKind::Mouse, 400.0, 300.0);
+    rig.now += 16.0;
+    rig.to(1, 450.0, 300.0);
+    // An animation the app starts mid-gesture.
+    rig.camera.ease_to(&CameraOptions::default().with_bearing(Some(45.0)), &AnimationOptions::new(milliseconds(500)));
+    rig.send(Input::PointerCancel { id: 1 });
+    assert!(!rig.camera.is_gesture_in_progress());
+    assert!(!rig.camera.in_transition(), "no glide, and the animation stopped");
+}
+
+#[test]
+fn lifting_a_finger_out_of_a_pinch_doesnt_fling_the_map() {
+    // Two fingers pan right at 625 px/s; one lifts, and the other jerks
+    // 45 px down over the next 30 ms, then lifts. The jerk belongs to the
+    // lift (Compose ignores 100 ms of it), so the release is the pan's.
+    let mut rig = Rig::new();
+    let ground = rig.unproject(p(400.0, 300.0));
+    rig.down(1, PointerKind::Touch, 300.0, 300.0);
+    rig.down(2, PointerKind::Touch, 500.0, 300.0);
+    for i in 1..=10 {
+        rig.now += 16.0;
+        let dx = 10.0 * f64::from(i);
+        rig.to(1, 300.0 + dx, 300.0);
+        rig.to(2, 500.0 + dx, 300.0);
+    }
+    rig.up(2, 600.0, 300.0);
+    for i in 1..=3 {
+        rig.now += 10.0;
+        rig.to(1, 400.0, 300.0 + 15.0 * f64::from(i));
+    }
+    rig.now += 10.0;
+    rig.up(1, 400.0, 345.0);
+    let lifted = rig.project(ground);
+    rig.settle();
+    let after = rig.project(ground);
+    let moved = p(after.x - lifted.x, after.y - lifted.y);
+    // The pan's 625 px/s glides right, and nothing down.
+    assert!((moved.x - glide(625.0)).abs() < 1.0 && moved.y.abs() < 1e-6, "{moved:?}");
+}
+
+#[test]
+fn a_key_step_during_a_drag_leaves_the_drag_going() {
+    let mut rig = Rig::new();
+    let zoom = rig.zoom();
+    rig.down(1, PointerKind::Mouse, 400.0, 300.0);
+    for i in 1..=4 {
+        rig.now += 16.0;
+        rig.to(1, 400.0 + 10.0 * f64::from(i), 300.0);
+    }
+    // A key mid-drag eases its step within the drag's gesture.
+    rig.key(Key::ZoomIn, Modifiers::default());
+    assert!(rig.camera.is_gesture_in_progress());
+    for i in 5..=8 {
+        rig.now += 16.0;
+        rig.to(1, 400.0 + 10.0 * f64::from(i), 300.0);
+        rig.frame();
+    }
+    assert!(rig.camera.is_gesture_in_progress());
+    // The release still glides, and the gesture lasts until it ends.
+    rig.up(1, 480.0, 300.0);
+    assert!(rig.camera.in_transition());
+    assert!(rig.camera.is_gesture_in_progress());
+    rig.settle();
+    assert!(!rig.camera.is_gesture_in_progress());
+    assert!((rig.zoom() - (zoom + 1.0)).abs() < 1e-9, "{}", rig.zoom() - zoom);
+}
+
+#[test]
+fn a_key_step_during_a_scroll_leaves_the_scroll_going() {
+    let mut rig = Rig::new();
+    let zoom = rig.zoom();
+    let at = p(100.0, 100.0);
+    rig.send(notches(at, -1.0));
+    rig.frame();
+    // `+` mid-ease is an update of the scroll's gesture, not its end.
+    rig.key(Key::ZoomIn, Modifiers::default());
+    for _ in 0..3 {
+        rig.frame();
+        assert!(rig.camera.is_gesture_in_progress());
+    }
+    rig.settle();
+    assert!(!rig.camera.is_gesture_in_progress());
+    assert!((rig.zoom() - (zoom + 1.0 / 3.0 + 1.0)).abs() < 1e-6, "{}", rig.zoom() - zoom);
+}
+
+/// A host's own step: zoom in by `levels`, around `at` or the center, over
+/// 500 ms (the GLFW app's `+`).
+fn host_zoom(levels: f64, at: Option<ScreenCoordinate>) -> CameraDelta {
+    CameraDelta {
+        scale: Some(levels.exp2()),
+        anchor: at,
+        animation: AnimationOptions::new(Duration::from_millis(500)),
+        // Ignored: the recognizer picks the phase.
+        phase: GesturePhase::End,
+        ..CameraDelta::default()
+    }
+}
+
+#[test]
+fn a_host_step_during_a_drag_leaves_the_drag_going() {
+    let mut rig = Rig::new();
+    let zoom = rig.zoom();
+    rig.down(1, PointerKind::Mouse, 400.0, 300.0);
+    for i in 1..=4 {
+        rig.now += 16.0;
+        rig.to(1, 400.0 + 10.0 * f64::from(i), 300.0);
+    }
+    // Unanchored: an anchored zoom couples the center, which the drag's next
+    // move takes over, ending the step (maplibre-native-ffi's patch 0015).
+    rig.input.step(&mut rig.camera, host_zoom(0.5, None)).unwrap();
+    assert!(rig.camera.is_gesture_in_progress());
+    for i in 5..=8 {
+        rig.now += 16.0;
+        rig.to(1, 400.0 + 10.0 * f64::from(i), 300.0);
+        rig.frame();
+    }
+    assert!(rig.camera.is_gesture_in_progress());
+    rig.up(1, 480.0, 300.0);
+    rig.settle();
+    assert!(!rig.camera.is_gesture_in_progress());
+    assert!((rig.zoom() - (zoom + 0.5)).abs() < 1e-9, "{}", rig.zoom() - zoom);
+}
+
+#[test]
+fn a_host_step_during_a_notch_ease_keeps_both_zooms() {
+    let mut rig = Rig::new();
+    let zoom = rig.zoom();
+    let at = p(100.0, 100.0);
+    rig.send(notches(at, -1.0));
+    rig.frame();
+    rig.input.step(&mut rig.camera, host_zoom(0.5, Some(at))).unwrap();
+    assert!(rig.camera.is_gesture_in_progress());
+    rig.settle();
+    assert!((rig.zoom() - (zoom + 1.0 / 3.0 + 0.5)).abs() < 1e-6, "{}", rig.zoom() - zoom);
+}
+
+#[test]
+fn a_host_step_must_be_valid() {
+    let mut rig = Rig::new();
+    let step = CameraDelta { scale: Some(0.0), ..CameraDelta::default() };
+    assert!(rig.input.step(&mut rig.camera, step).is_err());
 }

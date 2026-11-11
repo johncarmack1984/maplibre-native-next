@@ -7,8 +7,6 @@
 // which Orbis's orb-camera also names, so that hosts and the gesture
 // recognizer start from the same glide.
 
-use std::rc::Rc;
-
 use mln_util::chrono::Duration;
 use mln_util::geo::ScreenCoordinate;
 
@@ -43,6 +41,12 @@ impl Default for MomentumEasing {
 ///
 /// Speeds and distances are in the part's unit: logical pixels for pan, zoom
 /// levels for zoom, and degrees for bearing and pitch.
+///
+/// maplibre-native-ffi's C API gives each setting a field bit, and a setting
+/// whose bit isn't set takes the part's default. In Rust that is struct
+/// update from the part's constant: UIScrollView's normal deceleration with
+/// the pan's other defaults is
+/// `MomentumDecay { half_life: Duration::from_millis(346), ..MomentumDecay::PAN }`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MomentumDecay {
     pub model: MomentumDecayModel,
@@ -103,31 +107,6 @@ impl Default for MomentumDecay {
     }
 }
 
-/// How fast each part of a momentum moves, in its own unit per second.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct MomentumVelocity {
-    /// Logical pixels per second that the map's content moves on screen.
-    pub pan: ScreenCoordinate,
-    /// Zoom levels per second.
-    pub zoom: f64,
-    /// Degrees per second.
-    pub bearing: f64,
-    /// Degrees per second.
-    pub pitch: f64,
-}
-
-/// How a momentum ended.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct MomentumEnd {
-    /// The speed of the parts that were still moving when the momentum was
-    /// cancelled, as of the last frame that moved the camera. A momentum that
-    /// ran to its end reports zero.
-    pub velocity: MomentumVelocity,
-    /// Whether another command took a field that a moving part needed, which
-    /// stopped that part early.
-    pub replaced: bool,
-}
-
 /// Where a part settles once its glide ends normally: on the nearest of the
 /// targets every `spacing` from `offset`, when it is within `tolerance` of
 /// one. Bearing targets lie within one turn from `offset`, and the bearing
@@ -166,7 +145,17 @@ impl Default for MomentumSnap {
 /// change the fields that the momentum leaves alone. A command that sets a
 /// field stops the parts that move it. On a tilted map, pan moves the map's
 /// content the same distance on screen in every direction.
-#[derive(Clone, Default)]
+///
+/// [`Default`] gives each part maplibre-native-ffi's C API default decay
+/// ([`MomentumDecay::PAN`], [`ZOOM`](MomentumDecay::ZOOM),
+/// [`BEARING`](MomentumDecay::BEARING) and [`PITCH`](MomentumDecay::PITCH)),
+/// and no velocities, anchors or snaps: a part moves only when its velocity
+/// is set, and settles only when its snap is.
+///
+/// The momentum ends through its command's
+/// [`AnimationOptions::transition_end_fn`](crate::AnimationOptions::transition_end_fn),
+/// whose velocity says how fast a cancelled momentum still moved.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CameraMomentum {
     /// How fast the map's content moved on screen, in logical pixels per
     /// second.
@@ -193,8 +182,25 @@ pub struct CameraMomentum {
     /// The screen point that the tilt keeps in place.
     pub pitch_anchor: Option<ScreenCoordinate>,
     pub pitch_snap: Option<MomentumSnap>,
+}
 
-    /// Called once when the momentum ends, just before
-    /// [`AnimationOptions::transition_finish_fn`](crate::AnimationOptions::transition_finish_fn).
-    pub finish_fn: Option<Rc<dyn Fn(&MomentumEnd)>>,
+impl Default for CameraMomentum {
+    fn default() -> Self {
+        CameraMomentum {
+            pan_velocity: None,
+            pan_decay: MomentumDecay::PAN,
+            zoom_velocity: None,
+            zoom_decay: MomentumDecay::ZOOM,
+            zoom_anchor: None,
+            zoom_snap: None,
+            bearing_velocity: None,
+            bearing_decay: MomentumDecay::BEARING,
+            bearing_anchor: None,
+            bearing_snap: None,
+            pitch_velocity: None,
+            pitch_decay: MomentumDecay::PITCH,
+            pitch_anchor: None,
+            pitch_snap: None,
+        }
+    }
 }

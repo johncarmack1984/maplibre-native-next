@@ -18,9 +18,10 @@ use std::rc::Rc;
 
 use geometry::Point;
 use mln_map_types::{
-    AnimationOptions, CameraMomentum, CameraOptions, ConstrainMode, FreeCameraOptions, MomentumDecay,
-    MomentumDecayModel, MomentumEasing, MomentumEnd, MomentumSnap, NorthOrientation, ProjectionMode, TransformState,
-    TransformStateProperties, ViewportMode,
+    AnimationOptions, CameraDelta, CameraError, CameraMomentum, CameraOptions, CameraUpdate, CameraUpdateMode,
+    CameraVelocity, ConstrainMode, FreeCameraOptions, GesturePhase, MomentumDecay, MomentumDecayModel, MomentumEasing,
+    MomentumSnap, NorthOrientation, ProjectionMode, TransformState, TransformStateProperties, TransitionEnd,
+    TransitionOutcome, ViewportMode,
 };
 use mln_util::UnitBezier;
 use mln_util::chrono::{Clock, Duration, TimePoint};
@@ -31,7 +32,12 @@ use mln_util::logging::{Event, Log};
 use mln_util::projection::Projection;
 use mln_util::size::Size;
 
-use crate::map_observer::CameraChangeMode;
+use crate::map_observer::{CameraChange, CameraChangeMode, CameraChangeSource};
+
+/// A frame time older than this is stale (see [`Transform::frame_time`]):
+/// longer than a frame at 10 fps, so any host that draws sets a fresh one
+/// first.
+pub const STALE_FRAME_TIME: Duration = Duration::from_millis(100);
 
 /// `std::min`.
 fn std_min(a: f64, b: f64) -> f64 {
@@ -97,10 +103,12 @@ fn std_to_string(value: f64) -> String {
 }
 
 /// `TransformObserver` (src/mln/map/transform.hpp).
+///
+/// The camera callbacks take a [`CameraChange`] (see `MapObserver`).
 pub trait TransformObserver {
-    fn on_camera_will_change(&self, _mode: CameraChangeMode) {}
+    fn on_camera_will_change(&self, _change: CameraChange) {}
     fn on_camera_is_changing(&self) {}
-    fn on_camera_did_change(&self, _mode: CameraChangeMode) {}
+    fn on_camera_did_change(&self, _change: CameraChange) {}
 }
 
 /// `TransformObserver::nullObserver()`.
@@ -156,9 +164,72 @@ struct Transition {
     /// Set for a momentum, which moves the camera relative to where it
     /// stands instead of through `frame`.
     momentum: Option<RefCell<MomentumState>>,
+    /// Why the command ends, once something other than time ends it:
+    /// `Cancelled`, or `Replaced` when later commands took all its fields.
+    /// Set through [`Transition::ended_by`], where cancellation wins.
+    stopped: Cell<Option<TransitionOutcome>>,
+    /// What started the command, which the change that ends it reports.
+    source: CameraChangeSource,
+    /// For a gesture's momentum, the gesture's serial: its end ends the
+    /// gesture, unless another one started since.
+    gesture: Option<u64>,
 }
 
 impl Transition {
+    fn new(
+        fields: u16,
+        coupled_fields: u16,
+        moving_fields: u16,
+        start: TimePoint,
+        duration: Duration,
+        animation: &AnimationOptions,
+        frame: FrameFn,
+        source: CameraChangeSource,
+    ) -> Transition {
+        Transition {
+            fields: Cell::new(fields),
+            coupled_fields,
+            moving_fields: Cell::new(moving_fields),
+            start,
+            duration: Cell::new(duration),
+            animation: animation.clone(),
+            frame,
+            anchor: None,
+            anchor_lat_lng: LatLng::default(),
+            momentum: None,
+            stopped: Cell::new(None),
+            source,
+            gesture: None,
+        }
+    }
+
+    fn mode(&self) -> CameraChangeMode {
+        if self.duration.get() != Duration::zero() { CameraChangeMode::Animated } else { CameraChangeMode::Immediate }
+    }
+
+    /// Records why the command stops: `Cancelled` or `Replaced`. A
+    /// cancellation wins over a replacement, as maplibre-native-ffi reports
+    /// it.
+    fn ended_by(&self, outcome: TransitionOutcome) {
+        if self.stopped.get() != Some(TransitionOutcome::Cancelled) {
+            self.stopped.set(Some(outcome));
+        }
+    }
+
+    /// How the command ended, with a momentum's leftover speed: why it
+    /// stopped, else `Replaced` if later commands took every momentum part,
+    /// else `Completed`.
+    fn end(&self) -> TransitionEnd {
+        let (velocity, momentum_replaced) =
+            self.momentum.as_ref().map(|m| m.borrow().end()).unwrap_or((CameraVelocity::default(), false));
+        let outcome = self.stopped.get().unwrap_or(if momentum_replaced {
+            TransitionOutcome::Replaced
+        } else {
+            TransitionOutcome::Completed
+        });
+        TransitionEnd { outcome, velocity }
+    }
+
     /// The elapsed share of the duration, in [0, 1]; 1 for an immediate
     /// command.
     fn progress(&self, now: TimePoint) -> f64 {
@@ -349,22 +420,23 @@ impl MomentumState {
         needed
     }
 
-    /// Reports the speed as of the last frame, which left the camera where
-    /// it stands.
-    fn end(&self) -> MomentumEnd {
-        let mut result = MomentumEnd { replaced: self.replaced, ..Default::default() };
+    /// The speed of the parts still moving, as of the last frame, which left
+    /// the camera where it stands, and whether another command stopped a
+    /// part early by taking a field it needed.
+    fn end(&self) -> (CameraVelocity, bool) {
+        let mut velocity = CameraVelocity::default();
         if self.pan.moving {
             let share = self.pan.glide.speed(self.elapsed);
-            result.velocity.pan = ScreenCoordinate::new(self.pan_total.x * share, self.pan_total.y * share);
+            velocity.pan = ScreenCoordinate::new(self.pan_total.x * share, self.pan_total.y * share);
         }
         let speed = |i: usize| {
             let part = &self.scalars[i];
             if part.moving { self.scalar_totals[i] * part.glide.speed(self.elapsed) } else { 0.0 }
         };
-        result.velocity.zoom = speed(MOMENTUM_ZOOM);
-        result.velocity.bearing = speed(MOMENTUM_BEARING);
-        result.velocity.pitch = speed(MOMENTUM_PITCH);
-        result
+        velocity.zoom = speed(MOMENTUM_ZOOM);
+        velocity.bearing = speed(MOMENTUM_BEARING);
+        velocity.pitch = speed(MOMENTUM_PITCH);
+        (velocity, self.replaced)
     }
 }
 
@@ -403,6 +475,48 @@ pub struct Transform {
     latest_transition_start: TimePoint,
     latest_transition_duration: Duration,
     transitions: Vec<Rc<Transition>>,
+    /// What the commands being started come from: a command unless a gesture
+    /// or a momentum starts them (see [`Self::with_source`]).
+    source: CameraChangeSource,
+    gesture: GestureState,
+    /// The host's current frame time (see [`Self::set_frame_time`]).
+    frame_time: Option<TimePoint>,
+}
+
+/// The gesture that camera deltas and updates with a phase make, as
+/// maplibre-native-ffi tracks it.
+#[derive(Clone, Copy, Debug, Default)]
+struct GestureState {
+    /// Between its first `Begin` or `Update` and its `End` or `Cancel`.
+    active: bool,
+    /// Counts gestures, so that an earlier gesture's momentum doesn't end a
+    /// later gesture.
+    serial: u64,
+    /// The fields the gesture changed (`ZOOM`, `BEARING`, `PITCH`), which
+    /// alone may settle.
+    changed: u16,
+}
+
+impl GestureState {
+    /// Records the fields a gesture's change moves.
+    fn change(&mut self, zoom: bool, bearing: bool, pitch: bool) {
+        self.changed |=
+            (if zoom { ZOOM } else { 0 }) | (if bearing { BEARING } else { 0 }) | (if pitch { PITCH } else { 0 });
+    }
+
+    /// Drops the snaps of the parts the gesture didn't change: only what it
+    /// changed settles.
+    fn mask_snaps(&self, momentum: &mut CameraMomentum) {
+        if self.changed & ZOOM == 0 {
+            momentum.zoom_snap = None;
+        }
+        if self.changed & BEARING == 0 {
+            momentum.bearing_snap = None;
+        }
+        if self.changed & PITCH == 0 {
+            momentum.pitch_snap = None;
+        }
+    }
 }
 
 impl Transform {
@@ -417,6 +531,9 @@ impl Transform {
             latest_transition_start: TimePoint::default(),
             latest_transition_duration: Duration::zero(),
             transitions: Vec::new(),
+            source: CameraChangeSource::Command,
+            gesture: GestureState::default(),
+            frame_time: None,
         }
     }
 
@@ -428,6 +545,9 @@ impl Transform {
             latest_transition_start: TimePoint::default(),
             latest_transition_duration: Duration::zero(),
             transitions: Vec::new(),
+            source: CameraChangeSource::Command,
+            gesture: GestureState::default(),
+            frame_time: None,
         }
     }
 
@@ -442,7 +562,7 @@ impl Transform {
             return Ok(());
         }
 
-        self.observer.on_camera_will_change(CameraChangeMode::Immediate);
+        self.observer.on_camera_will_change(CameraChange::default());
         self.state.set_size(size);
         let mut scale = self.state.get_scale();
         let mut x = self.state.get_x();
@@ -465,7 +585,7 @@ impl Transform {
             // setLatLngZoom does.
             let zoom = self.state.scale_zoom(scale);
             self.state.set_lat_lng_zoom(&lat_lng(lat, lon), zoom);
-            self.observer.on_camera_did_change(CameraChangeMode::Immediate);
+            self.observer.on_camera_did_change(CameraChange::default());
 
             return Ok(());
         }
@@ -478,7 +598,7 @@ impl Transform {
                 .with_z(Some(z)),
         );
 
-        self.observer.on_camera_did_change(CameraChangeMode::Immediate);
+        self.observer.on_camera_did_change(CameraChange::default());
         Ok(())
     }
 
@@ -543,9 +663,7 @@ impl Transform {
         };
 
         if zoom.is_nan() || bearing.is_nan() || pitch.is_nan() || roll.is_nan() || fov.is_nan() {
-            if let Some(finish) = &animation.transition_finish_fn {
-                finish();
-            }
+            end_unstarted(animation, TransitionOutcome::Cancelled);
             return;
         }
 
@@ -650,9 +768,7 @@ impl Transform {
             || fov.is_nan()
             || self.state.get_size().is_empty()
         {
-            if let Some(finish) = &animation.transition_finish_fn {
-                finish();
-            }
+            end_unstarted(animation, TransitionOutcome::Cancelled);
             return;
         }
 
@@ -1075,21 +1191,14 @@ impl Transform {
             | (if scaling { ZOOM } else { 0 })
             | (if rotating { BEARING } else { 0 });
 
-        let start = Clock::now();
+        let start = self.now();
         let duration = if fields != 0 { duration } else { Duration::zero() };
         self.latest_transition_start = start;
         self.latest_transition_duration = duration;
         let transition = Rc::new(Transition {
-            fields: Cell::new(fields),
-            coupled_fields,
-            moving_fields: Cell::new(moving_fields),
-            start,
-            duration: Cell::new(duration),
-            animation: animation.clone(),
-            frame,
             anchor,
             anchor_lat_lng,
-            momentum: None,
+            ..Transition::new(fields, coupled_fields, moving_fields, start, duration, animation, frame, self.source)
         });
 
         let finished = self.release_fields(fields);
@@ -1098,11 +1207,7 @@ impl Transform {
         self.finish_transitions(&finished);
 
         let animated = duration != Duration::zero();
-        self.observer.on_camera_will_change(if animated {
-            CameraChangeMode::Animated
-        } else {
-            CameraChangeMode::Immediate
-        });
+        self.observer.on_camera_will_change(CameraChange { mode: transition.mode(), source: self.source });
 
         if !animated {
             self.apply_transitions(std::slice::from_ref(&transition), start);
@@ -1214,24 +1319,15 @@ impl Transform {
         );
     }
 
-    fn finish_transitions(&self, finished: &[Rc<Transition>]) {
+    fn finish_transitions(&mut self, finished: &[Rc<Transition>]) {
         for transition in finished {
-            if let Some(momentum) = &transition.momentum {
-                let momentum = momentum.borrow();
-                if let Some(finish) = &momentum.options.finish_fn {
-                    finish(&momentum.end());
-                }
-            }
-            if let Some(finish) = &transition.animation.transition_finish_fn {
-                finish();
+            self.end_gesture_momentum(transition.gesture);
+            if let Some(end_fn) = &transition.animation.transition_end_fn {
+                end_fn(&transition.end());
             }
             // This notification ends a command, not necessarily all camera
             // motion.
-            self.observer.on_camera_did_change(if transition.duration.get() != Duration::zero() {
-                CameraChangeMode::Animated
-            } else {
-                CameraChangeMode::Immediate
-            });
+            self.observer.on_camera_did_change(CameraChange { mode: transition.mode(), source: transition.source });
         }
     }
 
@@ -1295,6 +1391,7 @@ impl Transform {
                 active.fields.set(momentum.borrow_mut().retain(active.fields.get()));
             }
             if active.fields.get() == 0 {
+                active.ended_by(TransitionOutcome::Replaced);
                 finished.push(active.clone());
             }
         }
@@ -1307,8 +1404,17 @@ impl Transform {
     /// Continues a gesture with momentum. The momentum replaces the running
     /// animations of the fields that it moves, as a camera command does.
     pub fn start_momentum(&mut self, options: &CameraMomentum, animation: &AnimationOptions) {
+        self.with_source(CameraChangeSource::Momentum, |transform| {
+            transform.start_momentum_now(options, animation, None)
+        });
+    }
+
+    /// Starts a momentum; `gesture` is the serial of the gesture it
+    /// continues, which ends with it.
+    fn start_momentum_now(&mut self, options: &CameraMomentum, animation: &AnimationOptions, gesture: Option<u64>) {
+        let momentum_change = |mode: CameraChangeMode| CameraChange { mode, source: CameraChangeSource::Momentum };
         let mut momentum = MomentumState {
-            options: options.clone(),
+            options: *options,
             pan_total: ScreenCoordinate::new(0.0, 0.0),
             pan: MomentumPart::default(),
             scalars: [MomentumPart::default(); 3],
@@ -1360,7 +1466,7 @@ impl Transform {
             }
         }
 
-        let start = Clock::now();
+        let start = self.now();
         self.latest_transition_start = start;
         self.latest_transition_duration = motion;
 
@@ -1371,7 +1477,7 @@ impl Transform {
                 let finished = self.release_fields(settling);
                 self.update_movement_flags();
                 self.finish_transitions(&finished);
-                self.observer.on_camera_will_change(CameraChangeMode::Immediate);
+                self.observer.on_camera_will_change(momentum_change(CameraChangeMode::Immediate));
                 for i in 0..momentum.scalars.len() {
                     let part = &mut momentum.scalars[i];
                     let Some(snap) = part.snap.filter(|_| part.snap_pending) else { continue };
@@ -1380,30 +1486,28 @@ impl Transform {
                     self.step_scalar(i, delta, momentum.anchor(i));
                 }
             }
-            if let Some(finish) = &options.finish_fn {
-                finish(&momentum.end());
-            }
-            if let Some(finish) = &animation.transition_finish_fn {
-                finish();
-            }
+            self.end_gesture_momentum(gesture);
+            end_unstarted(animation, TransitionOutcome::Completed);
             if settling != 0 {
-                self.observer.on_camera_did_change(CameraChangeMode::Immediate);
+                self.observer.on_camera_did_change(momentum_change(CameraChangeMode::Immediate));
             }
             return;
         }
 
         let fields = moving | settling;
         let transition = Rc::new(Transition {
-            fields: Cell::new(fields),
-            coupled_fields: 0,
-            moving_fields: Cell::new(moving),
-            start,
-            duration: Cell::new(motion),
-            animation: animation.clone(),
-            frame: Rc::new(|_, _| CameraOptions::default()),
-            anchor: None,
-            anchor_lat_lng: LatLng::default(),
             momentum: Some(RefCell::new(momentum)),
+            gesture,
+            ..Transition::new(
+                fields,
+                0,
+                moving,
+                start,
+                motion,
+                animation,
+                Rc::new(|_, _| CameraOptions::default()),
+                CameraChangeSource::Momentum,
+            )
         });
         let finished = self.release_fields(fields);
         self.transitions.push(transition);
@@ -1411,7 +1515,15 @@ impl Transform {
         self.finish_transitions(&finished);
         // C++ checks here that the finish callbacks didn't replace or cancel
         // the momentum, which they can't in Rust (see the top of the file).
-        self.observer.on_camera_will_change(CameraChangeMode::Animated);
+        self.observer.on_camera_will_change(momentum_change(CameraChangeMode::Animated));
+    }
+
+    /// Runs `start` with the commands it starts attributed to `source`.
+    fn with_source<R>(&mut self, source: CameraChangeSource, start: impl FnOnce(&mut Self) -> R) -> R {
+        let previous = std::mem::replace(&mut self.source, source);
+        let result = start(self);
+        self.source = previous;
+        result
     }
 
     /// Steps the zoom, bearing or pitch part of a momentum.
@@ -1602,6 +1714,40 @@ impl Transform {
         true
     }
 
+    /// Puts the camera's animations on the host's frame clock: commands start
+    /// at the latest frame's time rather than at `Clock::now()` when they are
+    /// made, and the map samples them at it. Each frame then shows its
+    /// animations exactly one frame further on, whenever the input or the
+    /// map's update ran, and an animation started between frames moves by
+    /// that frame's interval on the next one: no frame repeats the
+    /// camera, and none skips ahead. `None` goes back to `Clock::now()`.
+    ///
+    /// Orbis starts animations on the first frame after the call, which
+    /// keeps the camera still for that frame; a glide that continues a drag
+    /// would pause there.
+    pub fn set_frame_time(&mut self, time: Option<TimePoint>) {
+        self.frame_time = time;
+    }
+
+    /// The host's frame time, unless it is stale: older than
+    /// [`STALE_FRAME_TIME`], as when the host stopped drawing frames or
+    /// forgot to set it this frame. A stale frame time would start a command
+    /// in the past, which the next frame would show already under way or
+    /// over.
+    pub fn frame_time(&self) -> Option<TimePoint> {
+        self.fresh_frame_time(Clock::now())
+    }
+
+    fn fresh_frame_time(&self, now: TimePoint) -> Option<TimePoint> {
+        self.frame_time.filter(|&time| now - time <= STALE_FRAME_TIME)
+    }
+
+    /// When commands start: the frame time, or now.
+    fn now(&self) -> TimePoint {
+        let now = Clock::now();
+        self.fresh_frame_time(now).unwrap_or(now)
+    }
+
     /// Timing of the most recently started command, even after it finishes.
     /// Other commands may still be active.
     pub fn get_latest_transition_start(&self) -> TimePoint {
@@ -1615,6 +1761,9 @@ impl Transform {
 
     pub fn cancel_transitions(&mut self) {
         let finished = std::mem::take(&mut self.transitions);
+        for transition in &finished {
+            transition.ended_by(TransitionOutcome::Cancelled);
+        }
         self.update_movement_flags();
         self.finish_transitions(&finished);
     }
@@ -1630,12 +1779,139 @@ impl Transform {
         if finished.is_empty() {
             return false;
         }
+        for transition in &finished {
+            transition.ended_by(TransitionOutcome::Cancelled);
+        }
         self.update_movement_flags();
         self.finish_transitions(&finished);
         true
     }
 
     // MARK: - Gesture
+
+    /// Moves the camera relative to where it is, as a gesture does
+    /// (maplibre-native-ffi's `mln_map_apply_camera_delta`). See
+    /// [`CameraDelta`].
+    pub fn apply_camera_delta(&mut self, delta: &CameraDelta) -> Result<(), CameraError> {
+        delta.validate()?;
+        let source = gesture_source(delta.phase);
+        let pans = delta.offset.is_some();
+        let eases = delta.scale.is_some() || delta.bearing.is_some() || delta.pitch.is_some();
+        // With momentum, the command's end is the momentum's, and the delta's
+        // own changes, which can't animate, apply before it starts.
+        // Otherwise the pan and the ease end the command together.
+        let parts = match delta.momentum {
+            Some(_) => AnimationOptions::default(),
+            None => joint_end(&delta.animation, u32::from(pans) + u32::from(eases)),
+        };
+        self.gesture_phase_before(delta.phase);
+        if delta.phase != GesturePhase::None {
+            self.gesture.change(
+                delta.scale.is_some_and(|scale| scale != 1.0),
+                delta.bearing.is_some_and(|bearing| bearing != 0.0),
+                delta.pitch.is_some_and(|pitch| pitch != 0.0),
+            );
+        }
+        self.with_source(source, |transform| {
+            if let Some(offset) = delta.offset {
+                // Validation keeps the offset finite, so it has a LatLng.
+                let _ = transform.move_by(&offset, &parts);
+            }
+            if eases {
+                let current = transform.get_camera_options(None);
+                let target = CameraOptions {
+                    zoom: delta.scale.map(|scale| current.zoom.unwrap_or(0.0) + scale.log2()),
+                    bearing: delta.bearing.map(|bearing| current.bearing.unwrap_or(0.0) + bearing),
+                    pitch: delta.pitch.map(|pitch| current.pitch.unwrap_or(0.0) + pitch),
+                    anchor: delta.anchor,
+                    ..CameraOptions::default()
+                };
+                transform.ease_to(&target, &parts);
+            }
+        });
+        match delta.momentum {
+            Some(mut momentum) => {
+                self.gesture.mask_snaps(&mut momentum);
+                // The gesture ends as its momentum starts, rather than in
+                // `gesture_phase_after`, so that a momentum with nothing to
+                // move, which ends at once, ends it too.
+                self.gesture.active = false;
+                let serial = self.gesture.serial;
+                self.with_source(CameraChangeSource::Momentum, |transform| {
+                    transform.start_momentum_now(&momentum, &delta.animation, Some(serial))
+                });
+            }
+            None if !pans && !eases => end_unstarted(&delta.animation, TransitionOutcome::Completed),
+            None => {}
+        }
+        self.gesture_phase_after(delta.phase, delta.momentum.is_some());
+        Ok(())
+    }
+
+    /// Moves the camera to absolute values, as a command or a gesture
+    /// (maplibre-native-ffi's `mln_map_update_camera`). See [`CameraUpdate`].
+    pub fn update_camera(&mut self, update: &CameraUpdate) {
+        self.gesture_phase_before(update.phase);
+        if update.phase != GesturePhase::None {
+            // A gesture's update can repeat a field it doesn't change.
+            let current = self.get_camera_options(None);
+            let changes = |value: Option<f64>, now: Option<f64>| value.is_some() && value != now;
+            self.gesture.change(
+                changes(update.camera.zoom, current.zoom),
+                changes(update.camera.bearing, current.bearing),
+                changes(update.camera.pitch, current.pitch),
+            );
+        }
+        self.with_source(gesture_source(update.phase), |transform| match update.mode {
+            CameraUpdateMode::Jump => {
+                transform.ease_to(&update.camera, &AnimationOptions { duration: None, ..update.animation.clone() })
+            }
+            CameraUpdateMode::Ease => transform.ease_to(&update.camera, &update.animation),
+            CameraUpdateMode::Fly => transform.fly_to(&update.camera, &update.animation, false),
+        });
+        self.gesture_phase_after(update.phase, false);
+    }
+
+    /// `Begin` cancels the running commands, and `Begin` and `Update` mark
+    /// the gesture, before its change applies, so that the change follows
+    /// the gesture rules (an ease doesn't fly, and wraps the longitude as a
+    /// drag). The first phase after a gesture ended starts a new one, which
+    /// an earlier gesture's momentum no longer ends.
+    fn gesture_phase_before(&mut self, phase: GesturePhase) {
+        if phase != GesturePhase::None && (phase == GesturePhase::Begin || !self.gesture.active) {
+            self.gesture = GestureState { serial: self.gesture.serial.wrapping_add(1), ..GestureState::default() };
+        }
+        if phase == GesturePhase::Begin {
+            self.cancel_transitions();
+        }
+        if matches!(phase, GesturePhase::Begin | GesturePhase::Update) {
+            self.gesture.active = true;
+            self.set_gesture_in_progress(true);
+        }
+    }
+
+    /// `Cancel` cancels the running commands after its change applies, and
+    /// `End` and `Cancel` end the gesture: at once, or when its momentum
+    /// ends.
+    fn gesture_phase_after(&mut self, phase: GesturePhase, momentum: bool) {
+        if phase == GesturePhase::Cancel {
+            self.cancel_transitions();
+        }
+        if matches!(phase, GesturePhase::End | GesturePhase::Cancel) {
+            self.gesture.active = false;
+            if !momentum {
+                self.set_gesture_in_progress(false);
+            }
+        }
+    }
+
+    /// The end of a gesture's momentum ends the gesture, unless another
+    /// gesture started since.
+    fn end_gesture_momentum(&mut self, gesture: Option<u64>) {
+        if gesture == Some(self.gesture.serial) && !self.gesture.active {
+            self.set_gesture_in_progress(false);
+        }
+    }
 
     pub fn set_gesture_in_progress(&mut self, in_progress: bool) {
         self.state.set_gesture_in_progress(in_progress);
@@ -1690,6 +1966,58 @@ impl Transform {
     pub fn set_free_camera_options(&mut self, options: &FreeCameraOptions) {
         self.cancel_transitions();
         self.state.set_free_camera_options(options);
+    }
+}
+
+impl Drop for Transform {
+    /// Ends the running commands as closed, as maplibre-native-ffi does when
+    /// a map closes, so that every command's end function runs once.
+    fn drop(&mut self) {
+        for transition in std::mem::take(&mut self.transitions) {
+            if let Some(end_fn) = &transition.animation.transition_end_fn {
+                let TransitionEnd { velocity, .. } = transition.end();
+                end_fn(&TransitionEnd { outcome: TransitionOutcome::Closed, velocity });
+            }
+        }
+    }
+}
+
+fn gesture_source(phase: GesturePhase) -> CameraChangeSource {
+    if phase == GesturePhase::None { CameraChangeSource::Command } else { CameraChangeSource::Gesture }
+}
+
+/// Animation options for the `count` commands that one camera delta starts,
+/// whose end function runs once, when the last of them ends, with the
+/// outcome that covers them all: cancelled if any was, otherwise closed if
+/// any was, otherwise replaced if any was (maplibre-native-ffi's
+/// `CommandTransitions`).
+fn joint_end(animation: &AnimationOptions, count: u32) -> AnimationOptions {
+    let Some(end_fn) = animation.transition_end_fn.clone().filter(|_| count > 1) else {
+        return animation.clone();
+    };
+    let remaining = Cell::new(count);
+    let outcome = Cell::new(TransitionOutcome::Completed);
+    let joint = move |end: &TransitionEnd| {
+        let worst = match (outcome.get(), end.outcome) {
+            (TransitionOutcome::Cancelled, _) | (_, TransitionOutcome::Cancelled) => TransitionOutcome::Cancelled,
+            (TransitionOutcome::Closed, _) | (_, TransitionOutcome::Closed) => TransitionOutcome::Closed,
+            (TransitionOutcome::Replaced, _) | (_, TransitionOutcome::Replaced) => TransitionOutcome::Replaced,
+            _ => TransitionOutcome::Completed,
+        };
+        outcome.set(worst);
+        remaining.set(remaining.get() - 1);
+        if remaining.get() == 0 {
+            end_fn(&TransitionEnd { outcome: worst, velocity: end.velocity });
+        }
+    };
+    AnimationOptions { transition_end_fn: Some(Rc::new(joint)), ..animation.clone() }
+}
+
+/// Ends a command that started no transition: one that failed before it
+/// moved the camera, or a momentum with nothing to move.
+fn end_unstarted(animation: &AnimationOptions, outcome: TransitionOutcome) {
+    if let Some(end_fn) = &animation.transition_end_fn {
+        end_fn(&TransitionEnd { outcome, ..TransitionEnd::default() });
     }
 }
 
