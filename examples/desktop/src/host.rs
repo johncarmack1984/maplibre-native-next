@@ -78,6 +78,14 @@ pub(crate) enum UserEvent {
     /// thread makes it.
     #[cfg(target_os = "macos")]
     MakeLayer(mpsc::Sender<Result<MetalLayer, String>>),
+    /// The Vulkan instance extensions a surface of the window needs, sent
+    /// back on the channel.
+    #[cfg(not(target_vendor = "apple"))]
+    VulkanExtensions(mpsc::Sender<Result<Vec<&'static std::ffi::CStr>, String>>),
+    /// A Vulkan surface for the window, from this instance of this Vulkan
+    /// library, sent back on the channel. The window's thread makes it.
+    #[cfg(not(target_vendor = "apple"))]
+    MakeVulkanSurface(Box<(ash::Entry, ash::Instance)>, mpsc::Sender<Result<ash::vk::SurfaceKHR, String>>),
     /// The window, sent back on the channel, for a backend that presents to
     /// it through EGL.
     #[cfg(target_os = "linux")]
@@ -452,6 +460,15 @@ impl ApplicationHandler<UserEvent> for Host {
             UserEvent::MakeLayer(reply) => {
                 let _ = reply.send(open.metal_layer());
             }
+            #[cfg(not(target_vendor = "apple"))]
+            UserEvent::VulkanExtensions(reply) => {
+                let _ = reply.send(crate::vulkan_surface::instance_extensions(&open.window));
+            }
+            #[cfg(not(target_vendor = "apple"))]
+            UserEvent::MakeVulkanSurface(vulkan, reply) => {
+                let (entry, instance) = &*vulkan;
+                let _ = reply.send(crate::vulkan_surface::create_surface(&open.window, entry, instance));
+            }
             #[cfg(target_os = "linux")]
             UserEvent::Window(reply) => {
                 let _ = reply.send(open.window.clone());
@@ -459,7 +476,11 @@ impl ApplicationHandler<UserEvent> for Host {
             UserEvent::SetTitle(title) => open.window.set_title(&title),
             UserEvent::Ui(output) => open.egui.handle_platform_output(&open.window, *output),
             UserEvent::RequestSize(size) => {
-                let _ = open.window.request_inner_size(size);
+                // A size that is applied at once (Wayland) comes back here
+                // and not as a `Resized` event.
+                if let Some(size) = open.window.request_inner_size(size) {
+                    open.inbox.send(Message::Resized(size));
+                }
             }
             UserEvent::Ended => event_loop.exit(),
         }

@@ -7,10 +7,13 @@
 //
 // The WebGPU logo (assets/webgpu.svg) is W3C's, under CC BY 4.0, which the
 // about panel credits; the Metal logo (assets/metal.svg) is Apple's, from
-// Wikimedia Commons, where it is in the public domain. The OpenGL logo
-// (assets/opengl.svg) is from Wikimedia Commons too, vectorised by Vulphere:
-// too simple for copyright, so in the public domain, and a trademark of
-// Hewlett Packard Enterprise that the Khronos Group uses under licence.
+// Wikimedia Commons, where it is in the public domain; the Vulkan logo
+// (assets/vulkan.svg) is Khronos's, from Wikimedia Commons. Vulkan and the
+// Vulkan logo are trademarks of the Khronos Group, which the about panel
+// says. The OpenGL logo (assets/opengl.svg) is from Wikimedia Commons too,
+// vectorised by Vulphere: too simple for copyright, so in the public domain,
+// and a trademark of Hewlett Packard Enterprise that the Khronos Group uses
+// under licence.
 
 use egui::{
     Align2, Color32, CornerRadius, CursorIcon, Frame, Id, Margin, Order, Rect, Response, RichText, Sense, Shadow,
@@ -357,6 +360,15 @@ fn about_panel(ctx: &egui::Context, palette: &Palette, shown: &Shown<'_>, action
                     );
                 });
             }
+            #[cfg(not(target_vendor = "apple"))]
+            ui.add(
+                egui::Label::new(
+                    RichText::new("Vulkan and the Vulkan logo are trademarks of the Khronos Group Inc.")
+                        .size(11.0)
+                        .color(palette.muted),
+                )
+                .wrap(),
+            );
         });
     });
 }
@@ -420,16 +432,17 @@ enum Piece {
 /// The backend's logo and name, at the bottom left; a click switches to the
 /// next backend.
 fn backend_label(ctx: &egui::Context, palette: &Palette, backend: Kind, actions: &mut Vec<Action>) {
-    // The logos are 18 points high; OpenGL's is a wordmark of 12 by 5.
+    // The logos are 18 points high; Vulkan's is 708 by 570, and OpenGL's is a
+    // wordmark of 12 by 5.
     let (logo, width) = match backend {
         #[cfg(target_os = "macos")]
         Kind::Metal => (egui::include_image!("../assets/metal.svg"), 18.0),
+        #[cfg(not(target_vendor = "apple"))]
+        Kind::Vulkan => (egui::include_image!("../assets/vulkan.svg"), 22.4),
         Kind::WebGpu => (egui::include_image!("../assets/webgpu.svg"), 18.0),
         #[cfg(target_os = "linux")]
         Kind::OpenGl => (egui::include_image!("../assets/opengl.svg"), 43.2),
     };
-    let index = Kind::ALL.iter().position(|&kind| kind == backend).unwrap_or(0);
-    let next = Kind::ALL[(index + 1) % Kind::ALL.len()];
     layer("backend", Align2::LEFT_BOTTOM, vec2(GAP, -GAP)).show(ctx, |ui| {
         let response = palette
             .control()
@@ -446,7 +459,7 @@ fn backend_label(ctx: &egui::Context, palette: &Palette, backend: Kind, actions:
             .response
             .interact(Sense::click());
         if response.on_hover_cursor(CursorIcon::PointingHand).clicked() {
-            actions.push(Action::SetBackend(next));
+            actions.push(Action::SetBackend(backend.next()));
         }
     });
 }

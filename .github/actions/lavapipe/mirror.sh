@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Uploads the packages that packages.sha256 and packages-egl.sha256 pin, each
-# a SHA-256 and a path in the Ubuntu archive, to the release that action.yml
-# installs them from. Run it after changing the pins, with a `gh` that may
-# write to the repository. Packages the release already has stay, for the
-# branches that still pin them.
+# Uploads the packages that packages.sha256, validation-layer.sha256 and
+# packages-egl.sha256 pin, each a SHA-256 and a path in the Ubuntu archive, to
+# the release that action.yml installs them from. Run it after changing the
+# pins, with a `gh` that may write to the repository. Packages the release
+# already has stay, for the branches that still pin them.
 set -euo pipefail
 
 repo=louwers/mln-rs
@@ -19,7 +19,7 @@ while read -r sha256 path; do
   curl -fsSL --retry 5 -o "$deb" "https://archive.ubuntu.com/ubuntu/$path"
   echo "$sha256  $deb" | sha256sum --check --quiet
   debs+=("$deb")
-done < <(cat "$here/packages.sha256" "$here/packages-egl.sha256")
+done < <(cat "$here/packages.sha256" "$here/validation-layer.sha256" "$here/packages-egl.sha256")
 
 if ! gh release view "$tag" --repo "$repo" > /dev/null 2>&1; then
   gh release create "$tag" --repo "$repo" --prerelease \

@@ -1,10 +1,14 @@
 name: Mesa's software rasterizers
 description: >-
   Installs Mesa's Vulkan drivers and points the Vulkan loader at lavapipe,
-  the software rasterizer the GPU tests on Linux run on. With `egl`, also
-  Mesa's EGL, for OpenGL ES on llvmpipe.
+  the software rasterizer the GPU tests on Linux run on. With
+  `validation-layer`, also Vulkan's validation layer, and with `egl`, Mesa's
+  EGL, for OpenGL ES on llvmpipe.
 
 inputs:
+  validation-layer:
+    description: Also install the Khronos validation layer (VK_LAYER_KHRONOS_validation).
+    default: 'false'
   egl:
     description: >-
       Also install Mesa's EGL (packages-egl.sha256), which the runner image
@@ -12,7 +16,8 @@ inputs:
       backend.
     default: 'false'
 
-# The packages are the Ubuntu ones that packages.sha256 pins, and with `egl`
+# The packages are the Ubuntu ones that packages.sha256 pins, with
+# `validation-layer` the one that validation-layer.sha256 pins and with `egl`
 # the ones that packages-egl.sha256 pins, downloaded from a release of this
 # repository (mirror.sh uploads them) rather than from the Ubuntu archive,
 # which is at times out of reach of the runners for hours. The runner image
@@ -27,11 +32,15 @@ runs:
     - shell: bash
       env:
         RELEASE: https://github.com/louwers/mln-rs/releases/download/ci-lavapipe
+        VALIDATION_LAYER: ${{ inputs.validation-layer }}
         EGL: ${{ inputs.egl }}
       run: |
         dir="$RUNNER_TEMP/lavapipe"
         mkdir -p "$dir"
         lists=("$GITHUB_ACTION_PATH/packages.sha256")
+        if [ "$VALIDATION_LAYER" = true ]; then
+          lists+=("$GITHUB_ACTION_PATH/validation-layer.sha256")
+        fi
         if [ "$EGL" = true ]; then
           lists+=("$GITHUB_ACTION_PATH/packages-egl.sha256")
         fi

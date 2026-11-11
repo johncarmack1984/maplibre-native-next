@@ -5,7 +5,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -182,7 +182,12 @@ impl Scene {
     /// A map whose renderer shares `glyph_cache`.
     pub fn with_glyph_cache(size: Size, mode: Mode, glyph_cache: Arc<GlyphCache>) -> Scene {
         let file_sources = file_sources();
-        let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join("../render-test/testdata/metrics/cache-style.db");
+        // MLN_BENCH_CACHE_DB names the render suite's cache database where
+        // the binary runs without its checkout, as on an Android device.
+        let cache = std::env::var_os("MLN_BENCH_CACHE_DB").map_or_else(
+            || Path::new(env!("CARGO_MANIFEST_DIR")).join("../render-test/testdata/metrics/cache-style.db"),
+            PathBuf::from,
+        );
         let resource_options = ResourceOptions::default().with_cache_path(cache.display().to_string());
         let frontend = HeadlessFrontend::with_glyph_cache(
             size,
@@ -306,11 +311,24 @@ impl Scene {
         self.observer.last_frame.clone().expect("the renderer reports each frame")
     }
 
-    /// The Metal backend finishes a frame before `render_frame` returns (its
-    /// swap waits for the command buffer); WebGPU's is left to the device.
+    /// The Metal and Vulkan backends finish a frame before `render_frame`
+    /// returns (their swap waits for the frame's commands); WebGPU's is left
+    /// to the device.
     fn wait_for_gpu(&self) {
         if let Some(device) = self.webgpu().and_then(mln_webgpu::HeadlessBackend::get_device) {
-            device.poll(wgpu::PollType::wait_indefinitely()).expect("the GPU finishes the frame");
+            // PowerVR's Vulkan driver on Android ends a wait shortly before
+            // wgpu sees the submission finished, which wgpu reports as a
+            // timeout; waiting again returns at once then.
+            let start = Instant::now();
+            loop {
+                match device.poll(wgpu::PollType::wait_indefinitely()) {
+                    Err(wgpu::PollError::Timeout) if start.elapsed() < WAIT_LIMIT => {}
+                    result => {
+                        result.expect("the GPU finishes the frame");
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -443,7 +461,8 @@ impl Scene {
         })
     }
 
-    /// The WebGPU backend, unless the frontend renders through Metal.
+    /// The WebGPU backend, unless the frontend renders through Metal or
+    /// Vulkan.
     fn webgpu(&self) -> Option<&mln_webgpu::HeadlessBackend> {
         self.frontend.get_backend().as_any().downcast_ref::<mln_webgpu::HeadlessBackend>()
     }
@@ -453,6 +472,10 @@ impl Scene {
         #[cfg(target_vendor = "apple")]
         if let Some(metal) = self.frontend.get_backend().as_any().downcast_ref::<mln_mtl::HeadlessBackend>() {
             return (format!("{} (Metal)", metal.get_device_name()), false);
+        }
+        #[cfg(not(any(target_vendor = "apple", target_family = "wasm")))]
+        if let Some(vulkan) = self.frontend.get_backend().as_any().downcast_ref::<mln_vulkan::HeadlessBackend>() {
+            return (format!("{} (Vulkan)", vulkan.get_device_name()), vulkan.is_software_device());
         }
         let Some(info) = self.webgpu().and_then(mln_webgpu::HeadlessBackend::get_adapter_info) else {
             return ("no adapter".to_string(), true);
