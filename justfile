@@ -348,7 +348,7 @@ update:
     cargo update
 
 # The shared suites' directories are copied whole, so new tests come along; every other file that is there is copied again.
-# The copies are from louwers/maplibre-native's maplibre-native-next-support branch at 4e03abe94cf5 (upstream 8e144d0eca08 plus what mln-rs-difftests needs).
+# The copies are from johncarmack1984/maplibre-native's maplibre-native-next-support-globe-sky branch at d171bf4b9934: the globe branch of maplibre/maplibre-native#4533 (phased/12h), with louwers/maplibre-native's maplibre-native-next-support branch at 4e03abe94cf5 (upstream 8e144d0eca08 plus what mln-rs-difftests needs) and the sky branch of maplibre/maplibre-native#4534 merged in.
 [doc("Refresh the copies of maplibre-native's files in the packages' testdata/ from a checkout of it")]
 update-testdata checkout=cpp:
     #!/usr/bin/env bash

@@ -21,6 +21,8 @@ pub(crate) enum Action {
     /// Load the style at this index of `Shown::styles`.
     PickStyle(usize),
     SetDebug(MapDebugOptions),
+    /// Draw the map on the globe, or on Mercator.
+    SetGlobe(bool),
     /// Empty the cache database.
     ResetCache,
 }
@@ -37,6 +39,8 @@ pub(crate) struct Shown<'a> {
     /// The sources' attributions, as HTML.
     pub attributions: &'a [String],
     pub debug: MapDebugOptions,
+    /// Whether the style's projection is the globe.
+    pub globe: bool,
     /// Lines about the renderer: its adapter, its frame time.
     pub status: &'a [String],
 }
@@ -309,6 +313,10 @@ fn about_panel(ctx: &egui::Context, palette: &Palette, shown: &Shown<'_>, action
             }
             if debug != shown.debug {
                 actions.push(Action::SetDebug(debug));
+            }
+            let mut globe = shown.globe;
+            if ui.checkbox(&mut globe, "Globe").on_hover_text("Draw the map on the globe").changed() {
+                actions.push(Action::SetGlobe(globe));
             }
             let reset = egui::Button::new("Reset the cache").stroke(Stroke::new(1.0, palette.line));
             if ui.add(reset).on_hover_text("Empty the cache database").clicked() {

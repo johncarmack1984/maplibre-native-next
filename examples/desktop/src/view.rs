@@ -39,6 +39,9 @@ use mln_map::{
 };
 use mln_renderer::Renderer;
 use mln_storage::{ClientOptions, DatabaseFileSource, FileSource, FileSourceManager, FileSourceType, ResourceOptions};
+use mln_style::PropertyValue;
+use mln_style::projection::Projection;
+use mln_style_types::{ProjectionDefinition, ProjectionType};
 use mln_util::chrono::{Clock, Duration};
 use mln_util::geo::{LatLng, ScreenCoordinate};
 use mln_util::logging::{Event, Log};
@@ -276,6 +279,9 @@ pub(crate) fn run(launch: Launch) {
             .with_fov(Some(settings.fov)),
     );
     map.set_debug(MapDebugOptions(settings.debug));
+    // The window always rotates (right drag), so drags and zooms on the
+    // globe turn the bearing with the planet.
+    map.set_globe_free_bearing(true);
 
     let style_url = match &args.style {
         Some(style) if !style.contains("://") => format!("file://{style}"),
@@ -638,6 +644,11 @@ impl View {
             pitch: camera.pitch.unwrap_or_default(),
             attributions: &attributions,
             debug: self.map.get_debug(),
+            globe: {
+                let style = self.map.get_style();
+                let type_ = style.get_projection().get_type();
+                type_.is_constant() && type_.as_constant().from == ProjectionType::Globe
+            },
             status: &status,
         };
         let mut actions = Vec::new();
@@ -685,6 +696,12 @@ impl View {
                 }
             }
             Action::SetDebug(debug) => self.map.set_debug(debug),
+            Action::SetGlobe(globe) => {
+                let mut projection = Projection::new();
+                let type_ = if globe { ProjectionType::Globe } else { ProjectionType::Mercator };
+                projection.set_type(PropertyValue::Constant(ProjectionDefinition::new(type_)));
+                self.map.get_style_mut().set_projection(projection);
+            }
             Action::ResetCache => self.reset_cache(),
         }
     }
