@@ -2346,6 +2346,7 @@ dependencies = [
  "bytemuck",
  "glow",
  "khronos-egl",
+ "libc",
  "libloading",
  "mln-rs-gfx",
  "mln-rs-tile-id",
@@ -2444,6 +2445,7 @@ dependencies = [
  "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
+ "objc2-io-surface",
  "objc2-metal 0.3.2",
  "objc2-quartz-core 0.3.2",
 ]
@@ -2550,6 +2552,7 @@ dependencies = [
  "glow",
  "httpmock",
  "khronos-egl",
+ "libc",
  "mln-rs-actor",
  "mln-rs-conversion",
  "mln-rs-feature",
@@ -3271,6 +3274,7 @@ dependencies = [
  "block2 0.6.2",
  "objc2 0.6.5",
  "objc2-foundation 0.3.2",
+ "objc2-io-surface",
 ]
 
 [[package]]
