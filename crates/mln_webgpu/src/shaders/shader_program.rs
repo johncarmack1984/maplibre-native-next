@@ -42,7 +42,7 @@ pub enum BindingType {
     StorageBuffer,
     Sampler,
     Texture,
-    /// For RGBA32Float textures that require textureLoad instead of textureSample
+    /// For `RGBA32Float` textures that require textureLoad instead of textureSample
     UnfilterableTexture,
 }
 
@@ -83,15 +83,14 @@ fn shader_source(source: &str) -> wgpu::ShaderSource<'_> {
 
     static PARSED: Mutex<Option<HashMap<String, wgpu::naga::Module>>> = Mutex::new(None);
     let cached = PARSED.lock_unpoisoned().get_or_insert_default().get(source).cloned();
-    let module = match cached {
-        Some(module) => module,
-        None => {
-            let Ok(module) = wgpu::naga::front::wgsl::parse_str(source) else {
-                return wgpu::ShaderSource::Wgsl(Cow::Borrowed(source));
-            };
-            PARSED.lock_unpoisoned().get_or_insert_default().insert(source.to_owned(), module.clone());
-            module
-        }
+    let module = if let Some(module) = cached {
+        module
+    } else {
+        let Ok(module) = wgpu::naga::front::wgsl::parse_str(source) else {
+            return wgpu::ShaderSource::Wgsl(Cow::Borrowed(source));
+        };
+        PARSED.lock_unpoisoned().get_or_insert_default().insert(source.to_owned(), module.clone());
+        module
     };
     wgpu::ShaderSource::Naga(Cow::Owned(module))
 }
@@ -131,10 +130,8 @@ fn webgpu_blend_factor(factor: ColorBlendFactorType) -> wgpu::BlendFactor {
         F::DstColor => wgpu::BlendFactor::Dst,
         F::OneMinusDstColor => wgpu::BlendFactor::OneMinusDst,
         F::SrcAlphaSaturate => wgpu::BlendFactor::SrcAlphaSaturated,
-        F::ConstantColor => wgpu::BlendFactor::Constant,
-        F::OneMinusConstantColor => wgpu::BlendFactor::OneMinusConstant,
-        F::ConstantAlpha => wgpu::BlendFactor::Constant,
-        F::OneMinusConstantAlpha => wgpu::BlendFactor::OneMinusConstant,
+        F::ConstantColor | F::ConstantAlpha => wgpu::BlendFactor::Constant,
+        F::OneMinusConstantColor | F::OneMinusConstantAlpha => wgpu::BlendFactor::OneMinusConstant,
     }
 }
 
@@ -145,8 +142,7 @@ fn to_primitive_topology(draw_mode_type: DrawModeType) -> wgpu::PrimitiveTopolog
         DrawModeType::LineStrip => wgpu::PrimitiveTopology::LineStrip,
         DrawModeType::TriangleStrip => wgpu::PrimitiveTopology::TriangleStrip,
         // WebGPU does not support triangle fan directly; approximate with triangle list
-        DrawModeType::TriangleFan => wgpu::PrimitiveTopology::TriangleList,
-        DrawModeType::Triangles => wgpu::PrimitiveTopology::TriangleList,
+        DrawModeType::TriangleFan | DrawModeType::Triangles => wgpu::PrimitiveTopology::TriangleList,
     }
 }
 
@@ -250,7 +246,7 @@ impl ShaderProgram {
     }
 
     /// `ShaderProgram(Context&, vertexSource, fragmentSource)` (minimal
-    /// constructor; name "ContextShader").
+    /// constructor; name "`ContextShader`").
     ///
     /// A `globalIndex` the sources declare in group 0 moves to a group of its
     /// own (see [`get_index_group`](Self::get_index_group)).
@@ -341,7 +337,7 @@ impl ShaderProgram {
         }
         // Create new pipeline
         let pipeline =
-            self.create_pipeline(vertex_layouts, color_mode, depth_mode, stencil_mode, draw_mode_type, cull_mode);
+            self.create_pipeline(vertex_layouts, color_mode, depth_mode, stencil_mode, draw_mode_type, *cull_mode);
         // Cache the pipeline if we have a reuse hash
         if let (Some(hash), Some(p)) = (reuse_hash, &pipeline) {
             self.render_pipeline_cache.borrow_mut().insert(hash, p.clone());
@@ -399,8 +395,8 @@ impl ShaderProgram {
         // array in the shader
         #[cfg(debug_assertions)]
         {
-            self.vertex_attributes.visit_attributes(|a| debug_assert!(a.get_index() != index));
-            self.instance_attributes.visit_attributes(|a| debug_assert!(a.get_index() != index));
+            self.vertex_attributes.visit_attributes(|a| debug_assert_ne!(a.get_index(), index));
+            self.instance_attributes.visit_attributes(|a| debug_assert_ne!(a.get_index(), index));
         }
         self.vertex_attributes.set(info.id, index, info.data_type, 1);
     }
@@ -409,7 +405,7 @@ impl ShaderProgram {
         // Index is the block index of the instance attribute
         let index = info.index as i32;
         #[cfg(debug_assertions)]
-        self.vertex_attributes.visit_attributes(|a| debug_assert!(a.get_index() != index));
+        self.vertex_attributes.visit_attributes(|a| debug_assert_ne!(a.get_index(), index));
         self.instance_attributes.set(info.id, index, info.data_type, 1);
     }
 
@@ -637,7 +633,7 @@ impl ShaderProgram {
         depth_mode: &DepthMode,
         stencil_mode: &StencilMode,
         draw_mode_type: DrawModeType,
-        cull_mode: &CullFaceMode,
+        cull_mode: CullFaceMode,
     ) -> Option<wgpu::RenderPipeline> {
         let device = self.context.get_backend().get_device();
         if !self.has_vertex_entry_point || !self.has_fragment_entry_point {
@@ -796,7 +792,7 @@ impl ShaderProgram {
                 vertex: wgpu::VertexState {
                     module: vertex_module,
                     entry_point: Some("main"),
-                    compilation_options: Default::default(),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
                     buffers: &buffers,
                 },
                 primitive,
@@ -805,7 +801,7 @@ impl ShaderProgram {
                 fragment: Some(wgpu::FragmentState {
                     module: fragment_module,
                     entry_point: Some("main"),
-                    compilation_options: Default::default(),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &targets,
                 }),
                 multiview_mask: None,
