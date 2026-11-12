@@ -496,9 +496,12 @@ impl SurfaceType {
                 cfg!(all(feature = "vulkan", not(any(target_vendor = "apple", target_family = "wasm")))) && windowing
             }
             BackendType::OpenGL => {
-                cfg!(all(feature = "gl", unix, not(target_vendor = "apple"), not(target_os = "android")))
+                cfg!(all(feature = "gl", unix, not(target_vendor = "apple")))
                     && windowing
-                    && matches!(self, SurfaceType::Xlib | SurfaceType::Wayland | SurfaceType::OhosNdk)
+                    && matches!(
+                        self,
+                        SurfaceType::Xlib | SurfaceType::Wayland | SurfaceType::AndroidNdk | SurfaceType::OhosNdk
+                    )
             }
             // wgpu's Vulkan backend makes no OpenHarmony surface, and this
             // build has no wgpu GLES backend.

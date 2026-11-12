@@ -1,6 +1,7 @@
 // The target of a native window: frames presented to an EGL window surface
-// on a Wayland surface, an X11 window or an OpenHarmony window, from an
-// OpenGL ES 3.0 context of the window's display. After the
+// on a Wayland surface, an X11 window, an Android `ANativeWindow` or an
+// OpenHarmony window, from an OpenGL ES 3.0 context of the window's display.
+// After the
 // GLFW app's backend (platform/glfw/glfw_gl_backend.cpp), which gets its
 // context and its buffer swaps from GLFW; here they are EGL's.
 //
@@ -40,6 +41,9 @@ enum WindowHandle {
     /// An Xlib `Display` and a window of it, with the ID of the window's
     /// visual, or 0 for one that isn't known.
     Xlib { display: *mut c_void, window: c_ulong, visual_id: c_ulong },
+    /// An `ANativeWindow`, on Android's one display.
+    #[cfg(target_os = "android")]
+    Android { window: *mut c_void },
     /// An `OpenHarmony` `OHNativeWindow`, which EGL's default display draws.
     Ohos { window: *mut c_void },
 }
@@ -60,10 +64,14 @@ impl WindowHandle {
                 window: window.window,
                 visual_id: window.visual_id,
             }),
+            #[cfg(target_os = "android")]
+            (RawDisplayHandle::Android(_), RawWindowHandle::AndroidNdk(window)) => {
+                Ok(WindowHandle::Android { window: window.a_native_window.as_ptr() })
+            }
             (RawDisplayHandle::Ohos(_), RawWindowHandle::OhosNdk(window)) => {
                 Ok(WindowHandle::Ohos { window: window.native_window.as_ptr() })
             }
-            _ => Err("The window is no Wayland surface, Xlib window or OpenHarmony window.".to_owned()),
+            _ => Err("The window is no Wayland surface, Xlib window, Android window or OpenHarmony window.".to_owned()),
         }
     }
 }
@@ -75,6 +83,12 @@ const PLATFORM_WAYLAND_KHR: egl::Enum = 0x31D8;
 type WlEglWindowCreate = unsafe extern "C" fn(*mut c_void, c_int, c_int) -> *mut c_void;
 type WlEglWindowResize = unsafe extern "C" fn(*mut c_void, c_int, c_int, c_int, c_int);
 type WlEglWindowDestroy = unsafe extern "C" fn(*mut c_void);
+
+#[cfg(target_os = "android")]
+#[link(name = "android")]
+unsafe extern "C" {
+    fn ANativeWindow_getFormat(window: *mut c_void) -> i32;
+}
 
 #[cfg(target_env = "ohos")]
 #[link(name = "native_window")]
@@ -138,6 +152,8 @@ impl EglWindow {
         let (platform, native_display, wayland) = match handle {
             WindowHandle::Wayland { display, .. } => (Some(PLATFORM_WAYLAND_KHR), display, true),
             WindowHandle::Xlib { display, .. } => (Some(PLATFORM_X11_KHR), display, false),
+            #[cfg(target_os = "android")]
+            WindowHandle::Android { .. } => (None, egl::DEFAULT_DISPLAY, false),
             // OpenHarmony's windows are all of EGL's default display.
             WindowHandle::Ohos { .. } => (None, egl::DEFAULT_DISPLAY, false),
         };
@@ -178,15 +194,21 @@ impl EglWindow {
         egl.choose_config(display, &attributes, &mut configs)
             .map_err(|e| format!("Failed to choose an EGL config: {e}"))?;
         let attribute = |config, attribute| egl.get_config_attrib(display, config, attribute).ok();
-        // An X11 window takes the surfaces of its visual only. Elsewhere, a
-        // config without alpha: the window is opaque, as the map's frames
-        // are, and a compositor would blend what alpha they have left.
-        let of_visual = match handle {
-            WindowHandle::Xlib { visual_id, .. } if visual_id != 0 => configs
-                .iter()
-                .find(|&&config| attribute(config, egl::NATIVE_VISUAL_ID) == egl::Int::try_from(visual_id).ok()),
-            _ => None,
+        // An X11 window takes the surfaces of its visual only, and an
+        // Android window keeps the format that its host gave it, which is
+        // its config's native visual. Elsewhere, a config without alpha: the
+        // window is opaque, as the map's frames are, and a compositor would
+        // blend what alpha they have left.
+        let visual_id = match handle {
+            WindowHandle::Xlib { visual_id, .. } => egl::Int::try_from(visual_id).ok(),
+            // SAFETY: the window is the live one of `window`.
+            #[cfg(target_os = "android")]
+            WindowHandle::Android { window } => Some(unsafe { ANativeWindow_getFormat(window) }),
+            WindowHandle::Wayland { .. } | WindowHandle::Ohos { .. } => None,
         };
+        let of_visual = visual_id.filter(|visual_id| *visual_id > 0).and_then(|visual_id| {
+            configs.iter().find(|&&config| attribute(config, egl::NATIVE_VISUAL_ID) == Some(visual_id))
+        });
         let opaque = || configs.iter().find(|&&config| attribute(config, egl::ALPHA_SIZE) == Some(0));
         let config = *of_visual
             .or_else(opaque)
@@ -247,6 +269,8 @@ impl EglWindow {
                 window
             }
             WindowHandle::Xlib { window, .. } => window as *mut c_void,
+            #[cfg(target_os = "android")]
+            WindowHandle::Android { window } => window,
             WindowHandle::Ohos { window } => {
                 #[cfg(target_env = "ohos")]
                 set_ohos_buffer_geometry(window, size);
@@ -421,11 +445,11 @@ pub struct SurfaceTarget {
 impl SurfaceTarget {
     /// A backend on a context of `window`'s display, and a target that
     /// presents frames of `framebuffer_size` pixels to `window`, a Wayland
-    /// surface, an Xlib window or an `OpenHarmony` window, which it keeps. It
-    /// takes the window over
-    /// with its first frame, not before: until then another target may
-    /// present to it. With `cap_frame_rate`, presenting to an X11 window
-    /// waits for the display.
+    /// surface, an Xlib window, an Android window or an `OpenHarmony`
+    /// window, which it keeps. It takes the window over with its first frame,
+    /// not before: until then another target may present to it. With
+    /// `cap_frame_rate`, presenting to an X11 or Android window waits for the
+    /// display.
     ///
     /// Fails with [`ErrorKind::Native`](mln_util::ErrorKind) when EGL has no
     /// OpenGL ES 3.0 context for the window.
