@@ -2156,6 +2156,7 @@ dependencies = [
  "raw-window-handle",
  "serde_json",
  "thiserror 2.0.21",
+ "windows-sys 0.61.2",
  "winit",
 ]
 
@@ -2356,6 +2357,7 @@ dependencies = [
  "raw-window-handle",
  "wasm-bindgen",
  "web-sys",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

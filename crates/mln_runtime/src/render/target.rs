@@ -466,21 +466,28 @@ pub struct DeviceOptions {
     /// The GPU to use. `None` picks the default one.
     pub adapter: Option<Adapter>,
     /// The API that an OpenGL device renders with. Only Linux's and
-    /// FreeBSD's EGL renders desktop OpenGL. Other backends ignore it.
+    /// FreeBSD's EGL renders desktop OpenGL, and Windows' WGL renders it
+    /// only. Other backends ignore it.
     pub gl_api: GlApi,
     /// Whether the sessions of an OpenGL device take turns in one context
     /// instead of having one each. Other backends ignore it.
     pub gl_single_context: bool,
 }
 
-/// The OpenGL API that an OpenGL device renders with.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+/// The OpenGL API that an OpenGL device renders with. By default the
+/// platform's: desktop OpenGL on Windows, and OpenGL ES elsewhere.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GlApi {
     /// OpenGL ES 3.0 or later.
-    #[default]
     Gles,
     /// Desktop OpenGL 3.3 or later.
     Gl,
+}
+
+impl Default for GlApi {
+    fn default() -> GlApi {
+        if cfg!(windows) { GlApi::Gl } else { GlApi::Gles }
+    }
 }
 
 /// A GPU, by what names it to a backend.
@@ -538,12 +545,18 @@ impl SurfaceType {
             BackendType::Vulkan => {
                 cfg!(all(feature = "vulkan", not(any(target_vendor = "apple", target_family = "wasm")))) && windowing
             }
+            // EGL presents to these windows, and on Windows WGL to Win32
+            // windows.
             BackendType::OpenGL => {
-                cfg!(all(feature = "gl", unix, not(target_vendor = "apple")))
+                cfg!(all(feature = "gl", any(windows, all(unix, not(target_vendor = "apple")))))
                     && windowing
                     && matches!(
                         self,
-                        SurfaceType::Xlib | SurfaceType::Wayland | SurfaceType::AndroidNdk | SurfaceType::OhosNdk
+                        SurfaceType::Win32
+                            | SurfaceType::Xlib
+                            | SurfaceType::Wayland
+                            | SurfaceType::AndroidNdk
+                            | SurfaceType::OhosNdk
                     )
             }
             // wgpu's Vulkan backend makes no OpenHarmony surface, and this
@@ -732,7 +745,7 @@ impl Device {
             Device::Vulkan(device) => device.export_kinds(),
             #[cfg(all(feature = "metal", target_vendor = "apple"))]
             Device::Metal(device) => mln_mtl::exported_target::export_kinds(device),
-            #[cfg(all(feature = "gl", unix, not(target_vendor = "apple"), not(target_os = "android")))]
+            #[cfg(all(feature = "gl", unix, not(target_vendor = "apple")))]
             Device::Gl(device) => mln_gl::exported_target::export_kinds(device),
             #[allow(unreachable_patterns)]
             _ => ExportKinds::NONE,
@@ -760,10 +773,10 @@ impl Device {
                 let (producer, consumer) = mln_mtl::exported_target::sync_kinds(device);
                 Ok((kind, producer, consumer))
             }
-            #[cfg(all(feature = "gl", unix, not(target_vendor = "apple"), not(target_os = "android")))]
+            #[cfg(all(feature = "gl", unix, not(target_vendor = "apple")))]
             Device::Gl(device) => {
                 let kind = mln_gl::exported_target::plan(device, ring)?;
-                let (producer, consumer) = mln_gl::exported_target::sync_kinds();
+                let (producer, consumer) = mln_gl::exported_target::sync_kinds(device);
                 Ok((kind, producer, consumer))
             }
             _ => {
@@ -787,8 +800,8 @@ impl Device {
             Device::Vulkan(device) => mln_vulkan::exported_target::sync_kinds(device),
             #[cfg(all(feature = "metal", target_vendor = "apple"))]
             Device::Metal(device) => mln_mtl::exported_target::sync_kinds(device),
-            #[cfg(all(feature = "gl", unix, not(target_vendor = "apple"), not(target_os = "android")))]
-            Device::Gl(_) => mln_gl::exported_target::sync_kinds(),
+            #[cfg(all(feature = "gl", unix, not(target_vendor = "apple")))]
+            Device::Gl(device) => mln_gl::exported_target::sync_kinds(device),
             _ => (SyncKinds::NONE, SyncKinds::NONE),
         }
     }
