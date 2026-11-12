@@ -17,7 +17,7 @@ use crate::generated::types::{
     MLN_FEATURE_STATE_SELECTOR_FEATURE_ID, MLN_MAP_MODE_CONTINUOUS, MLN_MAP_MODE_STATIC, MLN_MAP_MODE_TILE,
     MLN_MAP_OPTION_EVENT_MASK, MLN_MAP_OPTION_TILE_CACHE_ENABLED, MLN_TILE_LOD_MODE_DEFAULT,
     MLN_TILE_LOD_MODE_DISTANCE, mln_buffer_view, mln_camera_bounds, mln_completion, mln_diagnostic,
-    mln_feature_state_selector, mln_free_camera, mln_lat_lng_bounds, mln_logical_size, mln_map, mln_map_options,
+    mln_feature_state_selector, mln_free_camera, mln_lat_lng_bounds, mln_logical_extent, mln_map, mln_map_options,
     mln_map_snapshot, mln_map_tile_settings, mln_quaternion, mln_runtime, mln_runtime_event_flags, mln_status,
     mln_vec3,
 };
@@ -32,9 +32,16 @@ pub(crate) struct MapObject {
     /// The handles of the runtime's maps, which this map's entry leaves once
     /// it is released.
     handles: Arc<MapHandles>,
-    /// The scale factor as the caller gave it, which the map's views report
-    /// rather than the map's single-precision pixel ratio.
+    /// The scale factor as the caller created the map with, which the map's
+    /// views report rather than its single-precision pixel ratio.
     pub(crate) scale_factor: f64,
+}
+
+/// The scale factor that the caller gave for one that the runtime reports:
+/// the map's first, `initial`, which the runtime keeps at single precision,
+/// or one that a session's resize gave the runtime as it is.
+pub(crate) fn exact_scale_factor(initial: f64, reported: f64) -> f64 {
+    if reported == f64::from(initial as f32) { initial } else { reported }
 }
 
 static MAPS: HandleTable<MapObject> = HandleTable::new(HandleKind::Map);
@@ -336,7 +343,7 @@ pub unsafe extern "C" fn mln_map_get_snapshot(
         let object = resolve(map)?;
         let snapshot = object.map.snapshot()?;
         let mut snapshot = from_snapshot(&snapshot, object.map.event_mask().bits());
-        snapshot.view.extent.scale_factor = object.scale_factor;
+        snapshot.view.extent.scale_factor = exact_scale_factor(object.scale_factor, object.map.scale_factor());
         // SAFETY: the caller's contract.
         unsafe { abi::write_sized(out_snapshot, &snapshot) }
     })
@@ -350,13 +357,14 @@ pub unsafe extern "C" fn mln_map_get_snapshot(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mln_map_resize(
     map: mln_map,
-    logical_size: mln_logical_size,
+    extent: mln_logical_extent,
     completion: *const mln_completion,
     out_diagnostic: *mut mln_diagnostic,
 ) -> mln_status {
     export!(out_diagnostic, {
+        let extent = ::mln_runtime::LogicalExtent::new(Size::new(extent.width, extent.height), extent.scale_factor);
         // SAFETY: the caller's contract.
-        unsafe { command(map, completion, |map| map.resize(Size::new(logical_size.width, logical_size.height))) }
+        unsafe { command(map, completion, |map| map.resize(extent)) }
     })
 }
 

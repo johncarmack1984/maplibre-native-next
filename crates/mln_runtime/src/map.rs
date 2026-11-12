@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use mln_actor::RunLoopHandle;
 use mln_map::{
-    AnimationOptions, BoundOptions, Camera, CameraDelta, CameraOptions, CameraUpdate, FreeCameraOptions,
+    AnimationOptions, BoundOptions, Camera, CameraDelta, CameraOptions, CameraUpdate, FreeCameraOptions, LogicalExtent,
     MapDebugOptions, MapEvent, MapMode, MapSnapshot, ProjectionMode, StyleLoadError, TransitionEnd, TransitionOutcome,
 };
 use mln_text::GlyphCache;
@@ -120,7 +120,9 @@ pub(crate) struct MapShared {
     id: MapId,
     runtime: Arc<RuntimeShared>,
     mode: MapMode,
-    pixel_ratio: f32,
+    /// The map's scale factor, an `f64`'s bits: the options' pixel ratio,
+    /// until a session's resize sends another.
+    scale_factor: AtomicU64,
     tile_cache_enabled: bool,
     /// The render session attached to the map, from its attach until its
     /// detach completes.
@@ -142,7 +144,7 @@ impl MapShared {
             id,
             runtime,
             mode: options.map.map_mode(),
-            pixel_ratio: options.map.pixel_ratio(),
+            scale_factor: AtomicU64::new(f64::from(options.map.pixel_ratio()).to_bits()),
             tile_cache_enabled: options.tile_cache_enabled,
             session: Mutex::new(None),
             sent: Mutex::new(1),
@@ -402,21 +404,32 @@ impl Map {
 
     // MARK: - Map
 
-    /// Sets the map's size. A resize to the size the map has changes
-    /// nothing, so it renders nothing. Fails with
-    /// [`ErrorKind::InvalidState`](mln_util::ErrorKind) while a render
-    /// session is attached, since the session sizes the map to its target:
-    /// resize the session instead. Fails with
-    /// [`ErrorKind::InvalidArgument`](mln_util::ErrorKind) for an empty
-    /// size.
-    pub fn resize(&self, size: Size) -> Result<Completion<Applied>, Error> {
+    /// Sets the map's size and scale factor. The map keeps its tiles, and a
+    /// resize to the extent the map has changes nothing, so it renders
+    /// nothing. Fails with [`ErrorKind::InvalidState`](mln_util::ErrorKind)
+    /// while a render session is attached, since the session sizes the map
+    /// to its target: resize the session instead. Fails with
+    /// [`ErrorKind::InvalidArgument`](mln_util::ErrorKind) for an empty size,
+    /// or a scale factor that isn't finite and positive.
+    pub fn resize(&self, extent: LogicalExtent) -> Result<Completion<Applied>, Error> {
+        let LogicalExtent { size, scale_factor } = extent;
         if self.shared.session.lock_unpoisoned().is_some() {
             return Err(Error::invalid_state("the map has a render session: resize the session instead"));
         }
         if size.is_empty() {
             return Err(Error::invalid_argument("logical size dimensions must be positive"));
         }
-        self.command(move |map| if map.get_map_options().size() == size { Ok(()) } else { map.set_size(size) })
+        if !scale_factor.is_finite() || scale_factor <= 0.0 {
+            return Err(Error::invalid_argument(format!("scale factor {scale_factor} isn't finite and positive")));
+        }
+        // The scale factor that a session attached later renders at.
+        self.shared.scale_factor.store(scale_factor.to_bits(), Ordering::SeqCst);
+        self.command(move |map| {
+            if map.get_map_options().size() != size {
+                map.set_size(size)?;
+            }
+            map.set_pixel_ratio(scale_factor as f32)
+        })
     }
 
     /// Renders a new frame of a continuous map, even when nothing changed.
@@ -554,8 +567,12 @@ impl Map {
         self.shared.runtime.thread()
     }
 
-    pub(crate) fn pixel_ratio(&self) -> f32 {
-        self.shared.pixel_ratio
+    /// The map's scale factor: device pixels per logical pixel. It is the
+    /// pixel ratio of the map's options until a render session's
+    /// [`resize`](crate::RenderSession::resize) sets another, and the map's
+    /// next session renders at it.
+    pub fn scale_factor(&self) -> f64 {
+        f64::from_bits(self.shared.scale_factor.load(Ordering::SeqCst))
     }
 
     pub(crate) fn tile_cache_enabled(&self) -> bool {
@@ -647,15 +664,18 @@ impl Map {
         );
     }
 
-    /// Sends a command that resizes the map to `size`, then runs `resize`
-    /// with its outcome on the thread of the session that `run_loop` runs,
-    /// before the session learns of any later command.
+    /// Sends a command that resizes the map to `size` at `scale_factor`,
+    /// then runs `resize` with its outcome on the thread of the session that
+    /// `run_loop` runs, before the session learns of any later command.
     pub(crate) fn resize_for_session(
         &self,
         size: Size,
+        scale_factor: f64,
         run_loop: RunLoopHandle,
         resize: impl FnOnce(&mut Worker, Result<Applied, Error>, &mut Outbox) + Send + 'static,
     ) -> Result<(), Error> {
+        // The scale factor that a session attached later renders at.
+        self.shared.scale_factor.store(scale_factor.to_bits(), Ordering::SeqCst);
         let sent = self.shared.send(move |core, outbox, id, sequence, resolver: Resolver<()>| {
             drop(resolver);
             if !core.maps.contains_key(&id) {
@@ -666,7 +686,10 @@ impl Map {
                 id,
                 sequence,
                 outbox,
-                move |entry, _| entry.core.set_size(size),
+                move |entry, _| {
+                    entry.core.set_size(size)?;
+                    entry.core.set_pixel_ratio(scale_factor as f32)
+                },
                 move |_, resized, applied, _| {
                     let result = resized.map(|()| applied);
                     worker_post(&run_loop, move |worker, outbox| resize(worker, result, outbox));

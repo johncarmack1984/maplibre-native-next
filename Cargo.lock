@@ -2139,6 +2139,7 @@ dependencies = [
  "mln-rs-geojson",
  "mln-rs-map",
  "mln-rs-map-types",
+ "mln-rs-mtl",
  "mln-rs-rapidjson",
  "mln-rs-runtime",
  "mln-rs-storage",
@@ -2148,7 +2149,9 @@ dependencies = [
  "mln-rs-tile-id",
  "mln-rs-util",
  "mln-rs-vec-map",
+ "raw-window-handle",
  "serde_json",
+ "winit",
 ]
 
 [[package]]
