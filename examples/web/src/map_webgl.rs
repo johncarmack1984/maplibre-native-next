@@ -66,7 +66,6 @@ impl WebMap {
         let mut map =
             Map::new(MapOptions::new().with_size(size).with_pixel_ratio(pixel_ratio as f32)).map_err(js_error)?;
         map.set_waker(Some(Arc::new(wake_host)));
-        map.set_globe_free_bearing(true);
         renderer.set_event_queue(Some(map.renderer_events()));
         let frontend = Frontend { backend, renderer, updates: map.update_reader(), drawn_update: 0, redraw: false };
         Ok(WebMap {
