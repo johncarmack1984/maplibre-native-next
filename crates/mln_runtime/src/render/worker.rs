@@ -782,10 +782,11 @@ impl Worker {
         let result = match report {
             Some(report) => {
                 self.has_frame = true;
+                // The session takes the frame's generation in
+                // `publish_frame`.
                 let (generation, frame_generation) = {
-                    let mut state = self.shared.state.lock_unpoisoned();
-                    state.frame_generation += 1;
-                    (state.generation, state.frame_generation)
+                    let state = self.shared.state.lock_unpoisoned();
+                    (state.generation, state.frame_generation + 1)
                 };
                 FrameResult {
                     disposition: FrameDisposition::Rendered,
@@ -801,7 +802,7 @@ impl Worker {
             }
             None => FrameResult::unrendered(token, FrameDisposition::NoUpdate, update.generation),
         };
-        if let Some(slot) = slot {
+        let slot = slot.map(|slot| {
             let published = match handoff {
                 Some(Handoff::GivenBack { slot: given, sync }) if given == slot && result.view.is_some() => {
                     let device = self.gfx.as_ref().map(|gfx| gfx.target.device().clone());
@@ -814,20 +815,36 @@ impl Worker {
                 }
                 _ => None,
             };
-            self.end_slot(slot, published);
-        }
+            (slot, published)
+        });
         // The result goes out before the map hears of the frame, so a still
         // image completes with its frame's result queued.
-        self.publish(&result, outbox);
+        self.publish_frame(slot, &result, outbox);
         self.forward(events);
     }
 
     /// Queues a frame result for the host, and wakes it unless it was woken
     /// since its last drain.
     fn publish(&self, result: &FrameResult, outbox: &mut Outbox) {
+        self.publish_frame(None, result, outbox);
+    }
+
+    /// Publishes a frame: ends the ring `slot` it rendered into, with what
+    /// the host may acquire of it, and queues its result as `publish` does.
+    /// The slot, the result and the session's frame generation change under
+    /// one lock, so a snapshot shows a frame only once its result can be
+    /// drained and, in a ring, its slot acquired.
+    fn publish_frame(&self, slot: Option<(usize, Option<Published>)>, result: &FrameResult, outbox: &mut Outbox) {
         let wake = {
             let mut state = self.shared.state.lock_unpoisoned();
+            if let Some((slot, published)) = slot
+                && let Some(entry) = state.ring.get_mut(slot)
+            {
+                entry.rendering = false;
+                entry.frame = published;
+            }
             state.results.push(*result);
+            state.frame_generation = state.frame_generation.max(result.frame_generation);
             let wake = !state.frame_woken;
             state.frame_woken = true;
             wake.then(|| self.shared.frame_wake.clone()).flatten()
