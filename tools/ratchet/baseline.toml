@@ -153,7 +153,6 @@
 "crates/mln_webgpu/src/upload_pass.rs" = 1
 "vendor/geojson-vt/src/lib.rs" = 2
 "vendor/geojson/src/geojson_impl.rs" = 4
-"vendor/pmtiles/src/lib.rs" = 2
 "vendor/supercluster/src/lib.rs" = 1
 
 [todo-port]
@@ -265,4 +264,3 @@
 "vendor/geojson/src/lib.rs" = 1
 "vendor/geojson/tests/geojson.rs" = 1
 "vendor/geometry/src/lib.rs" = 1
-"vendor/pmtiles/src/lib.rs" = 1
