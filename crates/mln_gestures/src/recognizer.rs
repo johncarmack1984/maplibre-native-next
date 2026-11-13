@@ -398,8 +398,7 @@ enum Finish {
     Cancel,
     /// Ended without a release to continue: a box, input the map ignores.
     Stop,
-    /// Released without a fling (a tap, a platform pinch): only the snaps of
-    /// what it changed.
+    /// Released without a fling (a tap): only the snaps of what it changed.
     Settle,
     /// Released: it glides on, and settles.
     Glide,
@@ -1151,9 +1150,7 @@ impl GestureRecognizer {
     }
 
     /// A pinch the platform recognized: it zooms and turns around its center
-    /// as a touch pinch does, and stops where it ends, without a glide: the
-    /// platform's own pinch has none (macOS gives magnify and rotate events
-    /// no momentum phase, unlike scrolls).
+    /// as a touch pinch does, and glides on when it ends.
     fn platform_pinch(
         &mut self,
         camera: &mut dyn GestureCamera,
@@ -1169,7 +1166,7 @@ impl GestureRecognizer {
                 if !pinching {
                     return false;
                 }
-                let finish = if phase == PinchPhase::End { Finish::Settle } else { Finish::Cancel };
+                let finish = if phase == PinchPhase::End { Finish::Glide } else { Finish::Cancel };
                 self.finish(camera, now, finish);
                 return true;
             }
@@ -1180,6 +1177,7 @@ impl GestureRecognizer {
                 // A pinch takes over from a scroll, and stops its easing.
                 self.scroll = None;
                 self.begin(camera);
+                self.tracking.reset(now);
                 self.mode = Mode::Platform;
             }
             PinchPhase::Begin | PinchPhase::Update => {}
@@ -1199,6 +1197,7 @@ impl GestureRecognizer {
                 ..CameraDelta::default()
             },
         );
+        self.tracking.record(now, Step { zoom, bearing, around: Some(center), ..Step::default() });
         true
     }
 }
