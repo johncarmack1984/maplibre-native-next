@@ -10,7 +10,6 @@
 // TODO(port): the `ShaderProgram(name, backend, vertexModule, fragmentModule)`
 // constructor for precompiled modules (unused on the M1 path).
 
-use std::any::Any;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -799,9 +798,6 @@ impl Shader for ShaderProgram {
     fn type_name(&self) -> &'static str {
         Self::NAME
     }
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
 }
 
 impl ShaderProgramBase for ShaderProgram {
@@ -821,7 +817,7 @@ impl ShaderProgramBase for ShaderProgram {
 
 /// Downcast a shader handle to the WebGPU program (C++ `static_cast`).
 pub fn as_webgpu_shader(shader: &Rc<dyn ShaderProgramBase>) -> Option<&ShaderProgram> {
-    shader.as_any().downcast_ref::<ShaderProgram>()
+    shader.downcast_ref::<ShaderProgram>()
 }
 
 /// How the vendored sources declare `globalIndex`.
