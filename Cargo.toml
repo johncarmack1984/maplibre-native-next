@@ -84,7 +84,6 @@ render_test = { package = "mln-rs-render-test", path = "tools/render-test", vers
 shelf_pack = { package = "mln-rs-shelf-pack", path = "vendor/shelf-pack", version = "=0.0.11" }
 style_codegen = { package = "mln-rs-style-codegen", path = "tools/style-codegen", version = "=0.0.11" }
 supercluster = { package = "mln-rs-supercluster", path = "vendor/supercluster", version = "=0.0.11" }
-wagyu = { package = "mln-rs-wagyu", path = "vendor/wagyu", version = "=0.0.11" }
 
 # Third-party crates, for both builds (Cargo.lock pins their versions). Only
 # add a crate when nothing in the C++ core has to be ported for it.
@@ -131,6 +130,9 @@ libloading = { version = "0.8.9" }
 # (user decision, 2026-11-04); the differential test against the C++ decoder
 # (//difftest/mlt) was removed with that decision.
 mlt-core = { version = "0.22.1" }
+# The even-odd union that repairs the polygons of version 1 vector tiles,
+# instead of porting wagyu. mlt-core already depends on it through geo.
+i_overlay = { version = "4.5.2", default-features = false }
 # MVT decoding, instead of porting the C++ reader (vendor/vector-tile).
 fast-mvt = { version = "0.7.3", default-features = false, features = ["reader"] }
 # Glyph PBFs: fast-mvt's protobuf runtime, whose wire format functions read
@@ -389,7 +391,6 @@ pmtiles.workspace = true
 polylabel.workspace = true
 shelf_pack.workspace = true
 supercluster.workspace = true
-wagyu.workspace = true
 
 [lints]
 workspace = true
