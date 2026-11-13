@@ -49,7 +49,6 @@ pub use mln_webgpu;
 pub use nunicode;
 pub use pmtiles;
 pub use polylabel;
-pub use rapidjson;
 pub use shelf_pack;
 pub use supercluster;
 pub use wagyu;
