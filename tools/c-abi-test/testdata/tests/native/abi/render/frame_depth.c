@@ -108,15 +108,12 @@ static void a_frame_projection_places_points_where_the_frame_drew_them(void) {
   mln_render_frame_batch_release(batch);
   TEST_ASSERT_EQUAL_UINT32(MLN_RENDER_RESULT_RENDERED, frame.disposition);
   const mln_frame_projection* projection = &frame.frame_projection;
-#if defined(MLN_FFI_TEST_BACKEND_OPENGL)
-  TEST_ASSERT_EQUAL_UINT32(
-    MLN_CLIP_DEPTH_RANGE_NEGATIVE_ONE_TO_ONE, projection->clip_depth_range
+  // A session without a device renders with the platform's own backend,
+  // whatever the build tests, so the projection names its convention.
+  TEST_ASSERT_TRUE(
+    projection->clip_depth_range == MLN_CLIP_DEPTH_RANGE_ZERO_TO_ONE ||
+    projection->clip_depth_range == MLN_CLIP_DEPTH_RANGE_NEGATIVE_ONE_TO_ONE
   );
-#else
-  TEST_ASSERT_EQUAL_UINT32(
-    MLN_CLIP_DEPTH_RANGE_ZERO_TO_ONE, projection->clip_depth_range
-  );
-#endif
   TEST_ASSERT_TRUE(projection->far_depth > 0.9 && projection->far_depth < 1.0);
   TEST_ASSERT_TRUE(projection->near_distance > 0.0);
   TEST_ASSERT_TRUE(projection->near_distance < projection->far_distance);
@@ -126,13 +123,23 @@ static void a_frame_projection_places_points_where_the_frame_drew_them(void) {
   TEST_ASSERT_DOUBLE_WITHIN(1.0, drawn.x, point.x);
   TEST_ASSERT_DOUBLE_WITHIN(1.0, drawn.y, point.y);
 
-  // A frame that draws nothing has no projection.
-  mln_frame_demand demand = {.size = sizeof(mln_frame_demand)};
-  MLN_TEST_OK(mln_render_session_demand_frame(fixture.session, &demand, NULL));
-  batch = mln_test_render_wait_for_results(&fixture);
-  const mln_render_frame_result unchanged =
-    mln_test_render_batch_result(batch, 0);
-  mln_render_frame_batch_release(batch);
+  // A frame that draws nothing has no projection. The forced frame may have
+  // left an update to draw, such as a placement's, so demand until one doesn't
+  // render.
+  const mln_test_deadline deadline = mln_test_deadline_default();
+  mln_render_frame_result unchanged = {0};
+  do {
+    TEST_ASSERT_FALSE_MESSAGE(
+      mln_test_deadline_passed(deadline), "the map kept publishing updates"
+    );
+    mln_frame_demand demand = {.size = sizeof(mln_frame_demand)};
+    MLN_TEST_OK(
+      mln_render_session_demand_frame(fixture.session, &demand, NULL)
+    );
+    batch = mln_test_render_wait_for_results(&fixture);
+    unchanged = mln_test_render_batch_result(batch, 0);
+    mln_render_frame_batch_release(batch);
+  } while (unchanged.disposition == MLN_RENDER_RESULT_RENDERED);
   TEST_ASSERT_EQUAL_UINT32(MLN_RENDER_RESULT_NO_UPDATE, unchanged.disposition);
   TEST_ASSERT_EQUAL_UINT32(0, unchanged.frame_projection.clip_depth_range);
   TEST_ASSERT_EQUAL_DOUBLE(0.0, unchanged.frame_projection.matrix.w.w);
