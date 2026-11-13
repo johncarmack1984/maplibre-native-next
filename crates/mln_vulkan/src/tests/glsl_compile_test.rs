@@ -756,11 +756,14 @@ fn bindings_follow_from_the_packed_ids() {
 // The tables and `glsl_sources::ALL` list the same shaders, under their
 // `BuiltIn` names, and no table has more attributes and textures than a
 // shader can have. Only the fill extrusion walls have instance attributes.
+// A build without the globe has no table for its depth shader.
 #[test]
 fn tables_and_sources_are_the_same_shaders() {
     let names: Vec<&str> = sources().map(|source| source.name).collect();
-    assert_eq!(names.len(), glsl_sources::ALL.len());
-    for glsl in glsl_sources::ALL {
+    let all: Vec<_> =
+        glsl_sources::ALL.iter().filter(|glsl| cfg!(feature = "globe") || glsl.name != "GlobeDepthShader").collect();
+    assert_eq!(names.len(), all.len());
+    for glsl in all {
         assert_eq!(glsl.built_in, glsl.name);
         assert_eq!(names.iter().filter(|&&name| name == glsl.name).count(), 1, "{}", glsl.name);
     }

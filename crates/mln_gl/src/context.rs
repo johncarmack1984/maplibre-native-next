@@ -30,6 +30,7 @@ use mln_gfx::context::{Context as GfxContext, ContextBase};
 use mln_gfx::cull_face_mode::CullFaceMode;
 use mln_gfx::depth_mode::DepthMode;
 use mln_gfx::drawable_builder::UniqueDrawableBuilder;
+#[cfg(feature = "globe")]
 use mln_gfx::globe_clip_mask::{GlobeClipMask, GlobeClipMeshFn};
 use mln_gfx::projection_variant::ProjectionVariant;
 use mln_gfx::renderer::layer_group::LayerGroupBasePtr;
@@ -37,7 +38,9 @@ use mln_gfx::scissor_rect::ScissorRect;
 use mln_gfx::shader_group::StringIDSetsPair;
 use mln_gfx::shader_registry::ShaderRegistry;
 use mln_gfx::shaders::clipping_mask_ubo::ClipUBO;
+#[cfg(feature = "globe")]
 use mln_gfx::shaders::layer_ubo::ProjectionUBO;
+#[cfg(feature = "globe")]
 use mln_gfx::shaders::shader_defines::ID_PROJECTION_UBO;
 use mln_gfx::shaders::shader_program_base::{ShaderProgramBase, ShaderProgramBasePtr};
 use mln_gfx::stencil_mode::{StencilMode, Test};
@@ -88,6 +91,7 @@ struct ClipMasks {
     shader: Option<Weak<dyn ShaderProgramBase>>,
     /// Where the Mercator shader takes its matrix.
     matrix_location: Option<UniformLocation>,
+    #[cfg(feature = "globe")]
     globe_shader: Option<Weak<dyn ShaderProgramBase>>,
     tile_mesh: Option<ClipMesh>,
     /// The globe's clip mask meshes, by zoom, whether the tile is on the
@@ -95,6 +99,7 @@ struct ClipMasks {
     globe_meshes: HashMap<(u8, bool, bool, bool), ClipMesh>,
     /// The projection blocks of the globe masks being drawn.
     projection_buffer: Option<BufferID>,
+    #[cfg(feature = "globe")]
     projection_buffer_size: usize,
 }
 
@@ -724,6 +729,7 @@ impl Context {
 
     /// Draws the globe's tile clipping masks, with `mesh` making a tile's
     /// mesh in place of C++'s `rawGlobeTileMesh`.
+    #[cfg(feature = "globe")]
     fn render_globe_tile_clipping_masks_impl(
         &self,
         shaders: &ShaderRegistry,
@@ -948,6 +954,7 @@ impl GfxContext for Context {
         self.render_tile_clipping_masks_impl(shaders, tile_ubos)
     }
 
+    #[cfg(feature = "globe")]
     fn release_globe_clip_masks(&self) {
         let meshes = std::mem::take(&mut self.clip_masks.borrow_mut().globe_meshes);
         for mesh in meshes.into_values() {
@@ -955,6 +962,7 @@ impl GfxContext for Context {
         }
     }
 
+    #[cfg(feature = "globe")]
     fn render_globe_tile_clipping_masks(
         &self,
         _render_pass: &dyn mln_gfx::render_pass::RenderPass,

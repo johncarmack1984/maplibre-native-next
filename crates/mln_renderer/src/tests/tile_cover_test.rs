@@ -782,6 +782,7 @@ mod tile_cover {
     // The globe cases of GL JS `covering_tiles.test.ts`, same cameras, same tiles in the same order.
     // gtest: TileCover.GlobeZoomedOut
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_zoomed_out() {
         let mut transform = new_transform();
         set_up_globe(&mut transform, Size::new(128, 128), ll(0.0, 0.0), -1.0, 0.0, 0.0);
@@ -790,6 +791,7 @@ mod tile_cover {
 
     // gtest: TileCover.GlobeZoomedIn
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_zoomed_in() {
         let mut transform = new_transform();
         set_up_globe(&mut transform, Size::new(128, 128), ll(0.01, -0.02), 3.0, 0.0, 0.0);
@@ -801,6 +803,7 @@ mod tile_cover {
 
     // gtest: TileCover.GlobeZoomedInLargeViewport
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_zoomed_in_large_viewport() {
         let mut transform = new_transform();
         set_up_globe(&mut transform, Size::new(512, 512), ll(0.01, -0.02), 3.0, 0.0, 0.0);
@@ -821,6 +824,7 @@ mod tile_cover {
 
     // gtest: TileCover.GlobePitched
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_pitched() {
         let mut transform = new_transform();
         set_up_globe(&mut transform, Size::new(128, 128), ll(0.001, -0.002), 8.0, 80.0, 0.0);
@@ -832,6 +836,7 @@ mod tile_cover {
 
     // gtest: TileCover.GlobePitchedAndRotated
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_pitched_and_rotated() {
         let mut transform = new_transform();
         set_up_globe(&mut transform, Size::new(128, 128), ll(0.001, -0.002), 8.0, 80.0, 45.0);
@@ -847,6 +852,7 @@ mod tile_cover {
     // at the far top edge of the view; the lists are GL JS's with the frustum built in double precision, as here.
     // gtest: TileCover.GlobeSourceZoomsLikeGLJS
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_source_zooms_like_gljs() {
         struct Case {
             name: &'static str,
@@ -976,6 +982,7 @@ mod tile_cover {
     // Mercator range there are no tiles, so they are chosen around the center brought back to the edge of the range.
     // gtest: TileCover.GlobeAroundThePole
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_around_the_pole() {
         let mut transform = new_transform();
         set_up_globe(&mut transform, Size::new(512, 512), ll(-90.0, 0.0), 1.6, 0.0, 0.0);
@@ -1045,6 +1052,7 @@ mod tile_cover {
 
     // gtest: TileCover.GlobeAntimeridian
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_antimeridian() {
         let mut east = new_transform();
         set_up_globe(&mut east, Size::new(128, 128), ll(-0.001, 179.99), 5.0, 0.0, 0.0);
@@ -1063,6 +1071,7 @@ mod tile_cover {
 
     // gtest: TileCover.GlobeBelowZoomZero
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_below_zoom_zero() {
         let mut transform = new_transform();
         set_up_globe(&mut transform, Size::new(128, 128), ll(80.0, 0.0), -0.5, 0.0, 0.0);
@@ -1072,6 +1081,7 @@ mod tile_cover {
 
     // gtest: TileCover.GlobeAtTheHandOffZoom
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_at_the_hand_off_zoom() {
         let mut transform = new_transform();
         set_up_globe(&mut transform, Size::new(128, 128), ll(-0.087, -179.73), 11.0, 0.0, 0.0);
@@ -1080,6 +1090,7 @@ mod tile_cover {
 
     // gtest: TileCover.GlobeHidesTheFarSide
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_hides_the_far_side() {
         let mut transform = new_transform();
         set_up_globe(&mut transform, Size::new(512, 512), ll(0.0, 0.0), 3.0, 0.0, 0.0);
@@ -1095,6 +1106,7 @@ mod tile_cover {
 
     // gtest: TileCover.GlobeZoomZeroIsTheWholePlanet
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_zoom_zero_is_the_whole_planet() {
         let mut transform = transform(512, 512);
         transform.set_projection_definition(&ProjectionDefinition::from_name("vertical-perspective"));
@@ -1104,6 +1116,7 @@ mod tile_cover {
 
     // gtest: TileCover.GlobeCoverSurvivesTheAntimeridian
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_cover_survives_the_antimeridian() {
         let mut transform = transform(512, 512);
         transform.set_projection_definition(&ProjectionDefinition::from_name("vertical-perspective"));
@@ -1120,6 +1133,7 @@ mod tile_cover {
     // A center spun into another world copy covers the same tiles, in the same order, moved into that copy.
     // gtest: TileCover.GlobeCoverFollowsTheCenterIntoOtherWorldCopies
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_cover_follows_the_center_into_other_world_copies() {
         let mut transform = transform(512, 512);
         transform.set_projection_definition(&ProjectionDefinition::from_name("vertical-perspective"));

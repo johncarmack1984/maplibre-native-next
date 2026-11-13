@@ -2540,6 +2540,7 @@ fn main(in: FragmentInput) -> @location(0) vec4<f32> {
     prelude: None,
 };
 
+#[cfg(any(test, feature = "globe"))]
 pub(crate) const GLOBE_DEPTH_SHADER: WgslShaderSource = WgslShaderSource {
     built_in: "GlobeDepthShader",
     name: r"GlobeDepthShader",

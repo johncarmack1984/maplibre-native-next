@@ -10,6 +10,7 @@ mod change_request;
 mod frame_projection;
 mod geometry;
 mod gfx;
+#[cfg(feature = "globe")]
 mod globe_depth_pass;
 mod globe_tile_mesh;
 mod group_by_layout;

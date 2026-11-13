@@ -1799,6 +1799,7 @@ fn projection_data_mercator_fields() {
 
 // gtest: Transform.GlobeProjectionDefinition
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_projection_definition() {
     let mut transform = new_transform();
     assert!(!transform.get_state().is_globe_rendering());
@@ -1821,6 +1822,7 @@ fn globe_projection_definition() {
 // holds at that end's projection.
 // gtest: Transform.GlobeProjectionTransitionPastEitherEnd
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_projection_transition_past_either_end() {
     let mut transform = new_transform();
     transform.resize(Size::new(512, 512)).unwrap();
@@ -1844,6 +1846,7 @@ fn globe_projection_transition_past_either_end() {
 // would, at a zoom only the globe allows.
 // gtest: Transform.AnimationIntoTheGlobeTakesTheGlobesMinimumZoom
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn animation_into_the_globe_takes_the_globes_minimum_zoom() {
     let projection_for_zoom =
         |zoom: f64| ProjectionDefinition::from_name(if zoom < 3.0 { "vertical-perspective" } else { "mercator" });
@@ -1961,6 +1964,7 @@ fn run_to_end(transform: &mut Transform, start: Instant) {
 
 // gtest: VerticalPerspectiveProjection.CenterProjectsToScreenCenter
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn center_projects_to_screen_center() {
     let mut transform = new_transform();
     set_up_globe(&mut transform, &ll(37.0, -122.0), 3.0, 20.0, 30.0);
@@ -1987,6 +1991,7 @@ fn center_projects_to_screen_center() {
 
 // gtest: GlobeTransform.CachedViewStateFollowsTheCamera
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn cached_view_state_follows_the_camera() {
     let mut transform = new_transform();
     set_up_globe(&mut transform, &ll(20.0, -40.0), 2.5, 35.0, 25.0);
@@ -2052,6 +2057,7 @@ fn unproject_round_trip() {
 
 // gtest: GlobeTransform.OffGlobePixelsSnapToTheHorizon
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn off_globe_pixels_snap_to_the_horizon() {
     let mut transform = new_transform();
     set_up_globe(&mut transform, &ll(0.0, 0.0), 0.5, 0.0, 0.0);
@@ -2071,6 +2077,7 @@ fn off_globe_pixels_snap_to_the_horizon() {
 
 // gtest: GlobeTransform.MoveByPutsTheDraggedPointAtTheCenter
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn move_by_puts_the_dragged_point_at_the_center() {
     let mut transform = new_transform();
     set_up_globe(&mut transform, &ll(10.0, 20.0), 3.0, 0.0, 0.0);
@@ -2108,6 +2115,7 @@ fn anchored_zoom_keeps_the_anchor_in_place() {
 
 // gtest: GlobeTransform.ZoomingOutAroundAnAnchorNearTheHorizonStaysContinuous
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn zooming_out_around_an_anchor_near_the_horizon_stays_continuous() {
     // A fast pinch-out with the focal point drifting off the planet: the exact
     // re-anchoring jumped the center by ten degrees of latitude and the zoom
@@ -2203,6 +2211,7 @@ fn animations_around_an_anchor_end_like_a_jump() {
 
 // gtest: GlobeTransform.PolesAreReachableAndZoomFollowsLatitude
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn poles_are_reachable_and_zoom_follows_latitude() {
     let mut transform = new_transform();
     set_up_globe(&mut transform, &ll(0.0, 0.0), 0.0, 0.0, 0.0);
@@ -2268,6 +2277,7 @@ fn bounds_keep_the_center_inside() {
 
 // gtest: GlobeTransform.MinZoomFollowsLatitude
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn min_zoom_follows_latitude() {
     let mut transform = new_transform();
     set_up_globe(&mut transform, &ll(0.0, 0.0), 2.0, 0.0, 0.0);
@@ -2298,6 +2308,7 @@ fn min_zoom_follows_latitude() {
 
 // gtest: GlobeTransform.CameraFollowsTheGlobeBelowTheMinimumScale
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn camera_follows_the_globe_below_the_minimum_scale() {
     let mut transform = new_transform();
     set_up_globe(&mut transform, &ll(80.0, 0.0), 8.0, 0.0, 0.0);
@@ -2328,6 +2339,7 @@ fn zoom_adjustment() {
 
 // gtest: GlobeTransform.EaseAdjustsTheZoomToTheNewLatitude
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn ease_adjusts_the_zoom_to_the_new_latitude() {
     let mut transform = new_transform();
     set_up_globe_camera(&mut transform, &ll(0.0, 0.0), 1.0);
@@ -2341,6 +2353,7 @@ fn ease_adjusts_the_zoom_to_the_new_latitude() {
 
 // gtest: GlobeTransform.FlyAdjustsTheZoomToTheNewLatitude
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn fly_adjusts_the_zoom_to_the_new_latitude() {
     let mut transform = new_transform();
     set_up_globe_camera(&mut transform, &ll(0.0, 0.0), 1.0);
@@ -2357,6 +2370,7 @@ fn fly_adjusts_the_zoom_to_the_new_latitude() {
 
 // gtest: GlobeTransform.EaseKeepsThePlanetSizeAcrossLatitudes
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn ease_keeps_the_planet_size_across_latitudes() {
     let mut transform = new_transform();
     set_up_globe_camera(&mut transform, &ll(0.0, 0.0), 3.0);
@@ -2376,6 +2390,7 @@ fn ease_keeps_the_planet_size_across_latitudes() {
 
 // gtest: GlobeTransform.EaseFollowsTheLongitudeSpeedCurve
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn ease_follows_the_longitude_speed_curve() {
     let mut transform = new_transform();
     set_up_globe_camera(&mut transform, &ll(0.0, 0.0), 3.0);
@@ -2393,6 +2408,7 @@ fn ease_follows_the_longitude_speed_curve() {
 
 // gtest: GlobeTransform.EaseWithZoomSpeedsUpTheCenter
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn ease_with_zoom_speeds_up_the_center() {
     let mut transform = new_transform();
     set_up_globe_camera(&mut transform, &ll(0.0, 0.0), 3.0);
@@ -2411,6 +2427,7 @@ fn ease_with_zoom_speeds_up_the_center() {
 
 // gtest: GlobeTransform.FlyFollowsTheGlobePath
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn fly_follows_the_globe_path() {
     {
         let mut transform = new_transform();
@@ -2476,6 +2493,7 @@ fn fly_stays_above_the_minimum_zoom() {
 
 // gtest: GlobeTransform.CameraForBoundsFitsTheGlobe
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn camera_for_bounds_fits_the_globe() {
     let mut transform = new_transform();
     set_up_globe_camera(&mut transform, &ll(0.0, 0.0), 0.0);
@@ -2519,6 +2537,7 @@ fn camera_for_bounds_fits_the_globe() {
 // touches its edge.
 // gtest: GlobeTransform.CameraForBoundsFitsThePaddedView
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn camera_for_bounds_fits_the_padded_view() {
     let mut transform = new_transform();
     set_up_globe_camera(&mut transform, &ll(0.0, 0.0), 0.0);
@@ -2601,6 +2620,7 @@ fn mercator_matches_the_tile_matrix() {
 
 // gtest: TileProjector.GlobeOccludesTheFarSideAndCorrectsForLatitude
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_occludes_the_far_side_and_corrects_for_latitude() {
     let mut transform = new_transform();
     set_up_globe(&mut transform, &ll(40.0, 0.0), 1.0, 0.0, 0.0);
@@ -2630,6 +2650,7 @@ fn globe_occludes_the_far_side_and_corrects_for_latitude() {
 // `GlobeTransform` corrections for the same center and transition.
 // gtest: Transform.GlobeSizeCorrectionsBlendThroughTheTransition
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_size_corrections_blend_through_the_transition() {
     struct Case {
         latitude: f64,
@@ -2678,6 +2699,7 @@ fn globe_size_corrections_blend_through_the_transition() {
 
 // gtest: Transform.GlobeMaxPitchScaleFactor
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_max_pitch_scale_factor() {
     struct View {
         center: LatLng,
@@ -2705,6 +2727,7 @@ fn globe_max_pitch_scale_factor() {
 
 // gtest: Transform.GlobeLocationOcclusion
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_location_occlusion() {
     let mut transform = new_transform();
     set_up_globe(&mut transform, &ll(0.0, 0.0), 1.0, 0.0, 0.0);
@@ -2729,6 +2752,7 @@ fn globe_location_occlusion() {
 
 // gtest: Transform.GlobeCenterLongitudeStaysContinuous
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_center_longitude_stays_continuous() {
     let mut transform = new_transform();
     set_up_globe(&mut transform, &ll(0.0, 179.0), 1.0, 0.0, 0.0);
@@ -2750,6 +2774,7 @@ fn globe_center_longitude_stays_continuous() {
 // view's height and a wrapped center.
 // gtest: Transform.LeavingTheGlobeConstrainsTheCamera
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn leaving_the_globe_constrains_the_camera() {
     let mut transform = new_transform();
     transform.resize(Size::new(400, 800)).unwrap();
@@ -2769,6 +2794,7 @@ fn leaving_the_globe_constrains_the_camera() {
 // the globe hands over wrapped.
 // gtest: Transform.GlobeBoundsAcrossTheAntimeridian
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_bounds_across_the_antimeridian() {
     let mut transform = new_transform();
     set_up_globe(&mut transform, &ll(0.0, 150.0), 3.0, 0.0, 0.0);
@@ -2814,6 +2840,7 @@ fn camera_round_trips_inside_bounds_across_the_antimeridian() {
 
 // gtest: Transform.GlobeCameraCenterIsWrapped
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_camera_center_is_wrapped() {
     let mut transform = new_transform();
     set_up_globe(&mut transform, &ll(0.0, 179.0), 1.0, 0.0, 0.0);
@@ -2827,6 +2854,7 @@ fn globe_camera_center_is_wrapped() {
 // latitude, and the zoom follows the latitude to keep the planet's size.
 // gtest: Transform.GlobeFlingEndsAtGLJSInertiaCenter
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_fling_ends_at_gljs_inertia_center() {
     struct Pan {
         center: LatLng,
@@ -2881,6 +2909,7 @@ fn globe_fling_ends_at_gljs_inertia_center() {
 // over the pole, and the planet spun as it bounced back.
 // gtest: Transform.GlobeFlingTowardAPoleStaysOnItsMeridian
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_fling_toward_a_pole_stays_on_its_meridian() {
     struct Fling {
         zoom: f64,
@@ -2919,6 +2948,7 @@ fn globe_fling_toward_a_pole_stays_on_its_meridian() {
 // fling.
 // gtest: Transform.GlobeFlingStopsShortOfHalfATurn
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_fling_stops_short_of_half_a_turn() {
     let mut transform = new_transform();
     set_up_globe(&mut transform, &ll(0.0, 0.0), 0.5, 0.0, 0.0);
@@ -2943,6 +2973,7 @@ fn globe_fling_stops_short_of_half_a_turn() {
 // carries.
 // gtest: GlobeTransform.DragCenterMatchesGLJS
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn drag_center_matches_gljs() {
     // (name, center, zoom, bearing, pitch, point, panDelta, expected)
     type Step = (&'static str, (f64, f64), f64, f64, f64, (f64, f64), (f64, f64), (f64, f64));
@@ -3279,6 +3310,7 @@ fn drag_center_matches_gljs() {
 // beside it, so it slid away from the pole and the planet spun.
 // gtest: GlobeTransform.DragAroundThePoleHoldsItsLatitude
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn drag_around_the_pole_holds_its_latitude() {
     let mut transform = new_transform();
     transform.resize(Size::new(640, 480)).unwrap();
@@ -3307,6 +3339,7 @@ fn drag_around_the_pole_holds_its_latitude() {
 // -0.9872050442266238.
 // gtest: GlobeTransform.DragOverThePoleStopsOnIt
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn drag_over_the_pole_stops_on_it() {
     let mut transform = new_transform();
     transform.resize(Size::new(640, 480)).unwrap();
@@ -3329,6 +3362,7 @@ fn drag_over_the_pole_stops_on_it() {
 // and GL JS differ by a few times 1e-7 degrees.
 // gtest: GlobeTransform.FreeBearingDragMatchesGLJS
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn free_bearing_drag_matches_gljs() {
     // (name, center, zoom, bearing, pitch, anchor, panDelta, expected,
     // expectedBearing)
@@ -3570,6 +3604,7 @@ fn free_bearing_drag_matches_gljs() {
 // stops on the pole and the location stays behind.
 // gtest: GlobeTransform.FreeBearingDragKeepsTheLocationUnderTheCursor
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn free_bearing_drag_keeps_the_location_under_the_cursor() {
     for free_bearing in [true, false] {
         let _trace = ScopedTrace(if free_bearing { "free bearing" } else { "bearing held" }.to_owned());
@@ -3602,6 +3637,7 @@ fn free_bearing_drag_keeps_the_location_under_the_cursor() {
 // point.
 // gtest: GlobeTransform.FreeBearingZoomAroundThePoleKeepsTheViewsOrientation
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn free_bearing_zoom_around_the_pole_keeps_the_views_orientation() {
     for free_bearing in [true, false] {
         let _trace = ScopedTrace(if free_bearing { "free bearing" } else { "bearing held" }.to_owned());
@@ -3631,6 +3667,7 @@ fn free_bearing_zoom_around_the_pole_keeps_the_views_orientation() {
 // held, GL JS's fling, it stops on the pole.
 // gtest: GlobeTransform.FreeBearingFlingCarriesOnOverThePole
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn free_bearing_fling_carries_on_over_the_pole() {
     for free_bearing in [true, false] {
         let _trace = ScopedTrace(if free_bearing { "free bearing" } else { "bearing held" }.to_owned());
@@ -3665,6 +3702,7 @@ fn free_bearing_fling_carries_on_over_the_pole() {
 // edge of the range as a zoom in grows that area past it.
 // gtest: GlobeTransform.CenterReachesThePoleAtLowZoom
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn center_reaches_the_pole_at_low_zoom() {
     let mut transform = new_transform();
     set_up_globe_camera(&mut transform, &ll(60.2, 0.0), 8.0);
@@ -3702,6 +3740,7 @@ fn center_reaches_the_pole_at_low_zoom() {
 // center stays put and the pole moves off the anchor.
 // gtest: GlobeTransform.ZoomAroundThePoleKeepsTheCentersMeridian
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn zoom_around_the_pole_keeps_the_centers_meridian() {
     let gljs_latitudes = [
         90.0,
@@ -3756,6 +3795,7 @@ fn zoom_around_the_pole_keeps_the_centers_meridian() {
 // from (GL JS's camera at 512 by 512).
 // gtest: GlobeTransform.JumpBoundsThePoleByTheZoomItLandsOn
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn jump_bounds_the_pole_by_the_zoom_it_lands_on() {
     let landing_zoom = -0.512_965_868_530_333_8;
     let mut jump = new_transform();
@@ -3792,6 +3832,7 @@ fn jump_bounds_the_pole_by_the_zoom_it_lands_on() {
 // edge of the Mercator range.
 // gtest: GlobeTransform.EasesOntoAndOffThePole
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn eases_onto_and_off_the_pole() {
     struct Frame {
         latitude: f64,
@@ -3873,6 +3914,7 @@ fn eases_onto_and_off_the_pole() {
 // GL JS's own test flies onto the pole from zoom 8.
 // gtest: GlobeTransform.FliesOntoThePole
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn flies_onto_the_pole() {
     let mut transform = new_transform();
     set_up_globe_camera(&mut transform, &ll(60.2, 0.0), 8.0);
@@ -3906,6 +3948,7 @@ fn flies_onto_the_pole() {
 // goes past the Mercator range as far as the new zoom lets it.
 // gtest: GlobeTransform.ZoomAroundNearThePoleMatchesGLJS
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn zoom_around_near_the_pole_matches_gljs() {
     struct Zoom {
         center: LatLng,
@@ -4574,6 +4617,7 @@ fn momentum_pans_its_distance_on_screen() {
 // Port-only: momentum pans the globe as a drag around the view center does,
 // and its zoom keeps the planet's size as the latitude changes.
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn momentum_pans_the_globe_as_a_drag_does() {
     let mut transform = new_transform();
     set_up_globe_camera(&mut transform, &ll(10.0, 20.0), 3.0);
@@ -4595,6 +4639,7 @@ fn momentum_pans_the_globe_as_a_drag_does() {
 // Port-only: momentum zoom on the globe keeps to the latitude's minimum
 // zoom, which is below the map's toward the poles, as an ease does.
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn momentum_zoom_keeps_the_globes_minimum_at_the_latitude() {
     for zoom_velocity in [-3.0, 3.0] {
         let mut transform = new_transform();
@@ -5256,6 +5301,7 @@ fn a_turn_around_an_anchor_keeps_the_ground_under_it() {
 // the grabbed location under the cursor, which a drag around the view center
 // doesn't; on a flat map the anchor changes nothing.
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn a_drag_delta_holds_its_anchor() {
     let offset = sc(30.0, 12.0);
     let cursor = sc(330.0, 200.0);

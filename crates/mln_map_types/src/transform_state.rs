@@ -192,9 +192,20 @@ impl TransformState {
 
     // MARK: - Projection
 
+    /// Whether the build draws the globe (the `globe` feature). Without it,
+    /// every projection draws as Mercator.
+    pub const GLOBE: bool = cfg!(feature = "globe");
+
+    /// How far `definition` draws toward the globe: its transition state, or
+    /// 0, Mercator, in a build without the globe.
+    #[must_use]
+    pub fn globe_transition(definition: &ProjectionDefinition) -> f64 {
+        if Self::GLOBE { definition.transition_state() } else { 0.0 }
+    }
+
     pub fn set_projection_definition(&mut self, definition: &ProjectionDefinition) {
         self.projection_definition = *definition;
-        let transition = definition.transition_state();
+        let transition = Self::globe_transition(definition);
         if transition == self.projection_transition {
             return;
         }
@@ -224,8 +235,10 @@ impl TransformState {
         self.projection_transition
     }
 
+    /// Always false in a build without the globe, so that the globe's code
+    /// is dead there and the optimizer drops it.
     pub fn is_globe_rendering(&self) -> bool {
-        self.projection_transition > 0.0
+        Self::GLOBE && self.projection_transition > 0.0
     }
 
     // MARK: - Matrix

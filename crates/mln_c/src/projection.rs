@@ -746,6 +746,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn a_globe_view_hides_the_far_side() {
         let mercator = create(&view());
         let mut globe = view();

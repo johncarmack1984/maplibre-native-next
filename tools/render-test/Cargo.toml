@@ -20,6 +20,11 @@ name = "render_test"
 name = "render-test"
 path = "src/main.rs"
 
+[features]
+default = ["globe"]
+# The globe (crates/mln_map_types/Cargo.toml), which render tests draw.
+globe = ["mln_headless/globe", "mln_map/globe", "mln_map_types/globe", "mln_renderer/globe"]
+
 [dependencies]
 fastrand.workspace = true
 feature.workspace = true
@@ -55,10 +60,11 @@ tempfile.workspace = true
 name = "self_check"
 path = "tests/self_check.rs"
 
-# Every render and query test.
+# Every render and query test, the globe's among them.
 [[test]]
 name = "render_tests"
 path = "tests/render_tests.rs"
+required-features = ["globe"]
 
 # Every test style's layers cross through serde as they went in.
 [[test]]

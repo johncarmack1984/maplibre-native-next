@@ -554,7 +554,8 @@ impl Map {
             tile_lod_pitch_threshold: self.tile_lod_pitch_threshold,
             tile_lod_zoom_shift: self.tile_lod_zoom_shift,
             tile_lod_mode: self.tile_lod_mode,
-            subdivision_granularity: if self.mode == MapMode::Tile {
+            // Without the globe, the style's projection draws as Mercator.
+            subdivision_granularity: if self.mode == MapMode::Tile || !TransformState::GLOBE {
                 SubdivisionGranularitySetting::none()
             } else {
                 style_impl.get_projection().impl_.get_subdivision_granularity()

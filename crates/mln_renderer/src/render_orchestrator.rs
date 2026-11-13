@@ -235,6 +235,7 @@ pub(crate) struct RenderOrchestrator {
 
     pending_changes: UniqueChangeRequestVec,
 
+    #[cfg(feature = "globe")]
     globe_depth_pass: crate::globe_depth_pass::GlobeDepthPass,
     sky_pass: crate::sky_pass::SkyPass,
 
@@ -293,6 +294,7 @@ impl RenderOrchestrator {
             global_state: None,
             layer_groups_by_layer_index: VecMap::new(),
             layer_group_tweakers: HashMap::new(),
+            #[cfg(feature = "globe")]
             globe_depth_pass: crate::globe_depth_pass::GlobeDepthPass::default(),
             sky_pass: crate::sky_pass::SkyPass::default(),
             debug_layer_groups: VecMap::new(),   // layers: debug
@@ -1030,7 +1032,10 @@ impl RenderOrchestrator {
         self.debug_layer_groups.clear(); // layers: debug
         self.debug_layer_tweakers.clear(); // layers: debug
         self.sky_pass = crate::sky_pass::SkyPass::default();
-        self.globe_depth_pass = crate::globe_depth_pass::GlobeDepthPass::default();
+        #[cfg(feature = "globe")]
+        {
+            self.globe_depth_pass = crate::globe_depth_pass::GlobeDepthPass::default();
+        }
     }
 
     /// symbols: C++ `Renderer::render` recreates the dynamic texture atlas
@@ -1182,6 +1187,7 @@ impl RenderOrchestrator {
         let mut changes: UniqueChangeRequestVec = Vec::with_capacity(items.len() * 3);
         let mut all_features = FrameRenderedFeaturesMap::new();
 
+        #[cfg(feature = "globe")]
         let mut has_3d = false;
         for item in items.values() {
             let mut render_layer = item.layer.borrow_mut();
@@ -1196,7 +1202,10 @@ impl RenderOrchestrator {
                 render_tree,
                 &mut changes,
             );
-            has_3d = has_3d || render_layer.needs_globe_depth();
+            #[cfg(feature = "globe")]
+            {
+                has_3d = has_3d || render_layer.needs_globe_depth();
+            }
 
             // Accumulate rendered features from each render layer, leaving each one empty.
             let rendered_features = std::mem::take(&mut render_layer.base_mut().stats.rendered_features);
@@ -1222,6 +1231,7 @@ impl RenderOrchestrator {
             tree_parameters.sky.as_ref(),
             &tree_parameters.light,
         );
+        #[cfg(feature = "globe")]
         self.globe_depth_pass.update(
             shaders,
             context,
@@ -1245,6 +1255,7 @@ impl RenderOrchestrator {
         self.sky_pass.get_atmosphere_layer_group().cloned()
     }
 
+    #[cfg(feature = "globe")]
     pub(crate) fn get_globe_depth_layer_group(&self) -> Option<LayerGroupBasePtr> {
         self.globe_depth_pass.get_layer_group().cloned()
     }

@@ -16,7 +16,7 @@ name = "mln_renderer"
 doctest = false
 
 [features]
-default = ["font-face-shaper"]
+default = ["font-face-shaper", "globe"]
 # The style's font faces shaped in-process with mln_text's HBShaper
 # (HarfRust), the default FontFaceEngine (src/text/font_face_engine.rs). The
 # workspace's packages depend on this crate without its default features,
@@ -26,6 +26,8 @@ default = ["font-face-shaper"]
 # module, crates/mln_web_shaper, which its map loads only for styles with font
 # faces.
 font-face-shaper = []
+# The globe (crates/mln_map_types/Cargo.toml): its depth pass.
+globe = ["mln_map_types/globe", "mln_map/globe", "mln_webgpu/globe"]
 
 [dependencies]
 bytemuck.workspace = true
@@ -55,10 +57,10 @@ shelf_pack.workspace = true
 [dev-dependencies]
 geojson = { package = "mln-rs-geojson", path = "../../vendor/geojson" }
 mln_conversion = { package = "mln-rs-conversion", path = "../mln_conversion" }
-mln_map = { package = "mln-rs-map", path = "../mln_map" }
+mln_map = { package = "mln-rs-map", path = "../mln_map", default-features = false }
 mln_sprite = { package = "mln-rs-sprite", path = "../mln_sprite" }
 mln_storage = { workspace = true, features = ["test-support"] }
-mln_webgpu = { package = "mln-rs-webgpu", path = "../mln_webgpu" }
+mln_webgpu = { package = "mln-rs-webgpu", path = "../mln_webgpu", default-features = false }
 mlt-core.workspace = true
 pixelmatch = { package = "mln-rs-pixelmatch", path = "../../vendor/pixelmatch" }
 proptest.workspace = true

@@ -3061,6 +3061,7 @@ void main() {
 ",
 };
 
+#[cfg(any(test, feature = "globe"))]
 pub(crate) const GLOBE_DEPTH_SHADER: GlslShaderSource = GlslShaderSource {
     built_in: "GlobeDepthShader",
     name: "GlobeDepthShader",

@@ -407,7 +407,8 @@ fn root_properties_change_the_live_style_and_the_view() {
     wait(map.set_style_root_property("projection", r#"{"type":"globe"}"#));
     assert_eq!(wait(map.style_root_property("projection")).as_deref(), Some(r#"{"type":"globe"}"#));
     let snapshot = map.snapshot().unwrap();
-    assert!(snapshot.globe_rendering);
+    // A build without the globe draws the style's globe as Mercator.
+    assert_eq!(snapshot.globe_rendering, cfg!(feature = "globe"));
     assert_eq!(snapshot.view.projection, ProjectionDefinition::new(ProjectionType::VerticalPerspective));
 
     wait(map.set_globe_free_bearing_enabled(true));

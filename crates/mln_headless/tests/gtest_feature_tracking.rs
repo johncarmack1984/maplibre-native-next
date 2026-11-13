@@ -684,6 +684,7 @@ fn globe_ndc_bound() {
 
 // gtest: FeatureTracking.GlobeNDCBoundCirclePitchAlignment
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_ndc_bound_circle_pitch_alignment() {
     let mut test = globe_test();
     test.show(CIRCLE_LAYER_NAME);
@@ -753,6 +754,7 @@ fn globe_capture_during_transition() {
 // of a feature from a low zoom tile.
 // gtest: FeatureTracking.GlobeCaptureCloseUp
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_capture_close_up() {
     let mut test = globe_test();
     let options = GeoJSONOptions { maxzoom: 0, ..GeoJSONOptions::default() };
@@ -775,6 +777,7 @@ fn globe_capture_close_up() {
 // What the horizon hides is not rendered, wherever Mercator would have put it.
 // gtest: FeatureTracking.GlobeOccluded
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_occluded() {
     let mut test = globe_test();
     for layer in [FILL_LAYER_NAME, LINE_LAYER_NAME, CIRCLE_LAYER_NAME, SYMBOL_LAYER_NAME] {

@@ -383,6 +383,7 @@ impl Renderer {
 
             // Give the layers a chance to upload
             orchestrator.visit_layer_groups(|layer_group| layer_group.upload(&*upload_pass));
+            #[cfg(feature = "globe")]
             if let Some(globe_depth) = orchestrator.get_globe_depth_layer_group() {
                 globe_depth.borrow_mut().upload(&*upload_pass);
             }
@@ -541,6 +542,7 @@ impl Renderer {
 
             // The planet goes into the depth buffer first, so 3D geometry
             // behind the horizon stays hidden.
+            #[cfg(feature = "globe")]
             if let Some(globe_depth) = orchestrator.get_globe_depth_layer_group() {
                 globe_depth.borrow_mut().render(&mut parameters);
             }

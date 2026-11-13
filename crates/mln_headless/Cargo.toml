@@ -15,6 +15,19 @@ name = "mln_headless"
 # The doc comments have no examples to run.
 doctest = false
 
+[features]
+default = ["globe"]
+# The globe (crates/mln_map_types/Cargo.toml), which the map tests draw.
+globe = [
+    "mln_map/globe",
+    "mln_map_types/globe",
+    "mln_renderer/globe",
+    "mln_runtime/globe",
+    "mln_gl/globe",
+    "mln_vulkan/globe",
+    "mln_webgpu/globe",
+]
+
 [dependencies]
 mln_actor.workspace = true
 mln_gfx.workspace = true
@@ -22,7 +35,7 @@ mln_map.workspace = true
 mln_renderer.workspace = true
 # The devices and offscreen targets the frontend renders on, of every
 # backend.
-mln_runtime = { workspace = true, features = ["default"] }
+mln_runtime = { workspace = true, features = ["webgpu", "metal", "vulkan", "gl"] }
 mln_style.workspace = true
 mln_text.workspace = true
 mln_util.workspace = true
@@ -103,7 +116,7 @@ path = "tests/custom_layer_test.rs"
 feature = { package = "mln-rs-feature", path = "../../vendor/feature" }
 geojson = { package = "mln-rs-geojson", path = "../../vendor/geojson" }
 mln_image = { package = "mln-rs-image", path = "../mln_image" }
-mln_map_types = { package = "mln-rs-map-types", path = "../mln_map_types" }
+mln_map_types = { package = "mln-rs-map-types", path = "../mln_map_types", default-features = false }
 mln_math = { package = "mln-rs-math", path = "../mln_math" }
 mln_storage = { workspace = true, features = ["sqlite", "test-support"] }
 mln_style_types.workspace = true

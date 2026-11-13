@@ -307,6 +307,7 @@ fn projection_from_a_view_rejects_views_no_map_shows() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn projection_from_a_globe_view_matches_the_map() {
     let _loop = RunLoop::new();
     let mut map = map(MapOptions { size: Size::new(400, 300), ..Default::default() });

@@ -15,6 +15,11 @@ name = "mln_gl"
 # The doc comments have no examples to run.
 doctest = false
 
+[features]
+default = ["globe"]
+# The globe (crates/mln_map_types/Cargo.toml): its tile clipping masks.
+globe = []
+
 [dependencies]
 bytemuck.workspace = true
 glow.workspace = true

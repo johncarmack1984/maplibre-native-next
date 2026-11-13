@@ -75,8 +75,8 @@ path = "tests/sync_file_source.rs"
 
 [dev-dependencies]
 httpmock.workspace = true
-mln_headless = { package = "mln-rs-headless", path = "../mln_headless" }
-mln_map = { package = "mln-rs-map", path = "../mln_map" }
+mln_headless = { package = "mln-rs-headless", path = "../mln_headless", default-features = false }
+mln_map = { package = "mln-rs-map", path = "../mln_map", default-features = false }
 mln_test_server = { package = "mln-rs-test-server", path = "../../tools/test-server" }
 
 [lints]

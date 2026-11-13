@@ -15,6 +15,11 @@ name = "mln_map"
 # The doc comments have no examples to run.
 doctest = false
 
+[features]
+default = ["globe"]
+# The globe (crates/mln_map_types/Cargo.toml), which the camera's tests need.
+globe = ["mln_map_types/globe", "mln_renderer/globe"]
+
 [dependencies]
 feature.workspace = true
 geojson.workspace = true

@@ -13,6 +13,15 @@ name = "mln_map_types"
 # The doc comments have no examples to run.
 doctest = false
 
+[features]
+default = ["globe"]
+# The globe projection. Without it a style's `globe` or `vertical-perspective`
+# projection draws as Mercator: `TransformState::is_globe_rendering` is always
+# false, so the optimizer drops the globe's code paths. The crates above have
+# a `globe` feature of their own for what they leave out, which turns this one
+# on.
+globe = []
+
 [dependencies]
 geometry.workspace = true
 mln_math.workspace = true

@@ -464,6 +464,7 @@ fn notches_past_a_zoom_limit_dont_hold_the_zoom_there() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn notches_on_the_globe_zoom_out_to_the_floor_at_the_center_latitude() {
     let mut rig = Rig::new();
     rig.camera.set_projection_definition(&ProjectionDefinition::from_name("vertical-perspective"));
@@ -1004,6 +1005,7 @@ fn a_host_step_must_be_valid() {
 // Transform::move_by_with_anchor does with it (the C++ globe's
 // moveBy(offset, anchor)), and not around the view center.
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn a_drag_on_the_globe_turns_it_around_the_cursor() {
     let globe = |transform: &mut Transform| {
         transform.set_projection_definition(&ProjectionDefinition::from_name("vertical-perspective"));

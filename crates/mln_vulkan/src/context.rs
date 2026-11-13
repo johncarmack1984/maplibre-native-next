@@ -33,9 +33,12 @@ use std::rc::{Rc, Weak};
 use ash::vk;
 use mln_gfx::backend::Type as BackendType;
 use mln_gfx::context::{Context as GfxContext, ContextBase};
+#[cfg(feature = "globe")]
 use mln_gfx::cull_face_mode::CullFaceMode;
 use mln_gfx::drawable_builder::UniqueDrawableBuilder;
+#[cfg(feature = "globe")]
 use mln_gfx::gfx_types::AttributeDataType;
+#[cfg(feature = "globe")]
 use mln_gfx::globe_clip_mask::{GlobeClipMask, GlobeClipMeshFn};
 use mln_gfx::projection_variant::ProjectionVariant;
 use mln_gfx::renderer::layer_group::LayerGroupBasePtr;
@@ -84,6 +87,7 @@ const MAXIMUM_SURFACE_UPDATE_RETRIES: u8 = 3;
 
 /// The rest of a globe clip mask's projection block, which rides as
 /// per-instance vertex attributes: the push constants hold its two matrices.
+#[cfg(feature = "globe")]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
 struct GlobeClipMaskInstance {
@@ -130,12 +134,14 @@ struct Clipping {
 }
 
 /// A tile's pole-capped mesh for its globe clip mask.
+#[cfg(feature = "globe")]
 struct GlobeClipMesh {
     vertices: BufferResource,
     indices: BufferResource,
     index_count: u32,
 }
 
+#[cfg(feature = "globe")]
 #[derive(Default)]
 struct GlobeClipping {
     shader: Option<Weak<dyn ShaderProgramBase>>,
@@ -182,6 +188,7 @@ pub struct Context {
     surface_update_latency: Cell<i32>,
 
     clipping: RefCell<Clipping>,
+    #[cfg(feature = "globe")]
     globe_clipping: RefCell<GlobeClipping>,
     destroyed: Cell<bool>,
     /// What the next frame's submission waits on and signals, besides a
@@ -305,6 +312,7 @@ impl Context {
             surface_lost: Cell::new(false),
             surface_update_latency: Cell::new(0),
             clipping: RefCell::new(Clipping::default()),
+            #[cfg(feature = "globe")]
             globe_clipping: RefCell::new(GlobeClipping::default()),
             destroyed: Cell::new(false),
             frame_sync: RefCell::new(FrameSync::default()),
@@ -413,7 +421,10 @@ impl Context {
         *self.dummy_buffer.borrow_mut() = None;
         *self.dummy_texture.borrow_mut() = None;
         *self.clipping.borrow_mut() = Clipping::default();
-        *self.globe_clipping.borrow_mut() = GlobeClipping::default();
+        #[cfg(feature = "globe")]
+        {
+            *self.globe_clipping.borrow_mut() = GlobeClipping::default();
+        }
 
         // A deletion can enqueue another.
         loop {
@@ -1146,6 +1157,7 @@ impl Context {
 
     /// Draws the globe's tile clipping masks, with `mesh` making a tile's
     /// mesh in place of C++'s `rawGlobeTileMesh`.
+    #[cfg(feature = "globe")]
     fn render_globe_tile_clipping_masks_impl(
         &self,
         render_pass: &dyn mln_gfx::render_pass::RenderPass,
@@ -1551,10 +1563,12 @@ impl GfxContext for Context {
         self.render_tile_clipping_masks_impl(render_pass, shaders, tile_ubos)
     }
 
+    #[cfg(feature = "globe")]
     fn release_globe_clip_masks(&self) {
         self.globe_clipping.borrow_mut().meshes.clear();
     }
 
+    #[cfg(feature = "globe")]
     fn render_globe_tile_clipping_masks(
         &self,
         render_pass: &dyn mln_gfx::render_pass::RenderPass,

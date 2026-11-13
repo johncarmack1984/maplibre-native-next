@@ -15,6 +15,12 @@ name = "mln_webgpu"
 # The doc comments have no examples to run.
 doctest = false
 
+[features]
+default = ["globe"]
+# The globe (crates/mln_map_types/Cargo.toml): its tile clipping masks and its
+# depth shader.
+globe = []
+
 [dependencies]
 bytemuck.workspace = true
 mln_gfx.workspace = true

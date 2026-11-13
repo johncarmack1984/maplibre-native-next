@@ -7,8 +7,9 @@
 // device, would never be freed.
 
 use std::cell::{Cell, Ref, RefCell, RefMut};
-use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
+#[cfg(feature = "globe")]
+use std::collections::{BTreeMap, btree_map::Entry};
 use std::rc::{Rc, Weak};
 
 use mln_gfx::backend::Type as BackendType;
@@ -18,6 +19,7 @@ use mln_gfx::cull_face_mode::CullFaceMode;
 use mln_gfx::depth_mode::DepthMode;
 use mln_gfx::drawable_builder::UniqueDrawableBuilder;
 use mln_gfx::gfx_types::{AttributeDataType, DrawModeType};
+#[cfg(feature = "globe")]
 use mln_gfx::globe_clip_mask::{GlobeClipMask, GlobeClipMeshFn};
 use mln_gfx::projection_variant::ProjectionVariant;
 use mln_gfx::renderer::layer_group::LayerGroupBasePtr;
@@ -68,6 +70,7 @@ struct ClipMaskSlots {
 
 /// A globe clipping mask mesh's vertex and index buffers (with their sizes in
 /// bytes) and its index count.
+#[cfg(feature = "globe")]
 struct GlobeClipMesh {
     vertices: (wgpu::Buffer, u64),
     indices: (wgpu::Buffer, u64),
@@ -87,11 +90,15 @@ pub(crate) struct Context {
     clip_mask_renderable: Cell<Option<usize>>,
     clip_mask_pipeline_hash: Cell<Option<u64>>,
     clip_mask_slots: RefCell<ClipMaskSlots>,
+    #[cfg(feature = "globe")]
     globe_clip_mask_shader: RefCell<Option<Weak<dyn ShaderProgramBase>>>,
+    #[cfg(feature = "globe")]
     globe_clip_mask_pipeline_hash: Cell<Option<u64>>,
+    #[cfg(feature = "globe")]
     globe_clip_mask_slots: RefCell<ClipMaskSlots>,
     /// The globe clip meshes, by zoom, north pole row, south pole row and
     /// border.
+    #[cfg(feature = "globe")]
     globe_clip_meshes: RefCell<BTreeMap<(u8, bool, bool, bool), GlobeClipMesh>>,
     // `defaultVertexBuffers`: the default attribute buffers of
     // UploadPass::build_attribute_bindings, one per attribute type, with the
@@ -134,9 +141,13 @@ impl Context {
             clip_mask_renderable: Cell::new(None),
             clip_mask_pipeline_hash: Cell::new(None),
             clip_mask_slots: RefCell::default(),
+            #[cfg(feature = "globe")]
             globe_clip_mask_shader: RefCell::new(None),
+            #[cfg(feature = "globe")]
             globe_clip_mask_pipeline_hash: Cell::new(None),
+            #[cfg(feature = "globe")]
             globe_clip_mask_slots: RefCell::default(),
+            #[cfg(feature = "globe")]
             globe_clip_meshes: RefCell::new(BTreeMap::new()),
             submissions: Cell::new(0),
             index_table: RefCell::new(None),
@@ -377,6 +388,7 @@ impl Context {
         Some(shader)
     }
 
+    #[cfg(feature = "globe")]
     fn get_globe_clip_mask_shader(&self, shaders: &ShaderRegistry) -> Option<ShaderProgramBasePtr> {
         if let Some(shader) = self.globe_clip_mask_shader.borrow().as_ref().and_then(Weak::upgrade) {
             return Some(shader);
@@ -390,6 +402,7 @@ impl Context {
 
     /// Draws the globe's tile clipping masks; `mesh` makes a tile's mesh (see
     /// the trait method).
+    #[cfg(feature = "globe")]
     fn render_globe_tile_clipping_masks_impl(
         &self,
         render_pass: &dyn mln_gfx::render_pass::RenderPass,
@@ -765,10 +778,12 @@ impl GfxContext for Context {
         self.render_tile_clipping_masks_impl(render_pass, shaders, tile_ubos)
     }
 
+    #[cfg(feature = "globe")]
     fn release_globe_clip_masks(&self) {
         self.globe_clip_meshes.borrow_mut().clear();
     }
 
+    #[cfg(feature = "globe")]
     fn render_globe_tile_clipping_masks(
         &self,
         render_pass: &dyn mln_gfx::render_pass::RenderPass,

@@ -1634,6 +1634,7 @@ fn issue15216() {
 
 // gtest: Map.GlobeImageSourceBelowZoomZero
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_image_source_below_zoom_zero() {
     // An image source asked for its tile cover at zoom -1.5 on the globe; the
     // zoom was cast to an unsigned tile zoom and the render never returned.
@@ -3197,6 +3198,7 @@ fn style_update_zoom_dependency() {
 
 // gtest: Map.GlobeHandOffKeepsTiles
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_hand_off_keeps_tiles() {
     // Crossing the globe's Mercator hand-off must not re-parse the tiles already on screen.
     let _run_loop = RunLoop::new();
@@ -3256,6 +3258,7 @@ fn globe_hand_off_keeps_tiles() {
 
 // gtest: Map.GlobeKeepsItsTilesAcrossTheAntimeridian
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_keeps_its_tiles_across_the_antimeridian() {
     // The globe's zoom-0 tile takes the wrap of the world copy the center is in, so it changes wrap whenever the
     // center crosses the antimeridian. It is the same piece of the sphere in either, and must not be parsed again.
@@ -3306,6 +3309,7 @@ fn globe_keeps_its_tiles_across_the_antimeridian() {
 
 // gtest: Map.GlobeSetBoundsKeepsAZoomTheGlobeAllows
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_set_bounds_keeps_a_zoom_the_globe_allows() {
     let test = MapTest::new();
     test.load_json(r#"{"version":8,"projection":{"type":"vertical-perspective"},"sources":{},"layers":[]}"#);
@@ -3317,6 +3321,7 @@ fn globe_set_bounds_keeps_a_zoom_the_globe_allows() {
 
 // gtest: Map.GlobeBoundsForCamera
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_bounds_for_camera() {
     struct Case {
         lng: f64,
@@ -3460,6 +3465,7 @@ fn globe_bounds_for_camera() {
 
 // gtest: Map.GlobeSkyPixelSnapsToTheHorizonAhead
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_sky_pixel_snaps_to_the_horizon_ahead() {
     let test = MapTest::new();
     test.map().set_size(Size::new(512, 512)).unwrap();
@@ -3489,6 +3495,7 @@ fn set_bounds_lifts_the_zoom_to_a_minimum_above_the_maximum() {
 
 // gtest: Map.GlobeBoundedSourceLoadsFinerTiles
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_bounded_source_loads_finer_tiles() {
     // Just below an integer zoom the globe cover asks for the next zoom's tiles nearest the camera; a source with
     // bounds must create them.

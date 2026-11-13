@@ -703,7 +703,7 @@ impl Transform {
         // The target is drawn in the projection the style gives at its zoom,
         // which the animation may cross into.
         let target_globe = match &self.projection_for_zoom {
-            Some(projection_for_zoom) => projection_for_zoom(zoom).transition_state() > 0.0,
+            Some(projection_for_zoom) => TransformState::globe_transition(&projection_for_zoom(zoom)) > 0.0,
             None => globe,
         };
         zoom = mln_math::clamp_f64(
@@ -902,7 +902,7 @@ impl Transform {
         // The target is drawn in the projection the style gives at its zoom,
         // which the animation may cross into.
         let target_globe = match &self.projection_for_zoom {
-            Some(projection_for_zoom) => projection_for_zoom(zoom).transition_state() > 0.0,
+            Some(projection_for_zoom) => TransformState::globe_transition(&projection_for_zoom(zoom)) > 0.0,
             None => globe,
         };
         zoom = mln_math::clamp_f64(

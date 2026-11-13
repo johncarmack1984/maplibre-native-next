@@ -13,6 +13,11 @@ name = "mln_gestures"
 # The doc comments have no examples to run.
 doctest = false
 
+[features]
+default = ["globe"]
+# The globe (crates/mln_map_types/Cargo.toml), which some tests drag and zoom.
+globe = ["mln_map/globe"]
+
 [dependencies]
 mln_map.workspace = true
 mln_util.workspace = true

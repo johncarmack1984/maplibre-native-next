@@ -217,6 +217,7 @@ impl SkyPass {
         self.atmosphere_layer_group.as_ref()
     }
 
+    #[cfg(feature = "globe")]
     #[must_use]
     pub(crate) fn has_atmosphere(&self) -> bool {
         self.atmosphere_layer_group.as_ref().is_some_and(|group| !group.borrow().empty())

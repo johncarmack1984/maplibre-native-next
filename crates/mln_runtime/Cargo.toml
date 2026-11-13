@@ -19,11 +19,13 @@ doctest = false
 # browser's) everywhere. A browser build turns on one of `webgpu` and `gl`,
 # so that it carries one backend and its shaders.
 [features]
-default = ["webgpu", "metal", "vulkan", "gl"]
+default = ["webgpu", "metal", "vulkan", "gl", "globe"]
 webgpu = ["dep:mln_webgpu", "dep:wgpu"]
 metal = ["dep:mln_mtl"]
 vulkan = ["dep:mln_vulkan"]
 gl = ["dep:mln_gl"]
+# The globe (crates/mln_map_types/Cargo.toml), in the map and the backends.
+globe = ["mln_map/globe", "mln_renderer/globe", "mln_gl?/globe", "mln_vulkan?/globe", "mln_webgpu?/globe"]
 
 [dependencies]
 feature.workspace = true
