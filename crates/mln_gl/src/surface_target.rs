@@ -410,11 +410,16 @@ impl EglWindow {
         }
     }
 
-    fn swap(&self) {
-        if let Some(surface) = self.surface.get()
-            && let Err(e) = self.egl.swap_buffers(self.display, surface)
-        {
-            Log::error(Event::GraphicsBackend, format!("eglSwapBuffers() failed: {e}"));
+    /// Presents the frame, and returns whether the window took it: not when
+    /// the window went away, which leaves its surface invalid.
+    fn swap(&self) -> bool {
+        let Some(surface) = self.surface.get() else { return false };
+        match self.egl.swap_buffers(self.display, surface) {
+            Ok(()) => true,
+            Err(e) => {
+                Log::error(Event::GraphicsBackend, format!("eglSwapBuffers() failed: {e}"));
+                false
+            }
         }
     }
 
@@ -549,9 +554,9 @@ impl SurfaceTarget {
             })
         };
         let _ = window.clear_current();
-        let backend = Rc::new(RendererBackend::from_parts(gl, Box::new(WindowContext(window.clone()))));
+        let backend = Rc::new(RendererBackend::from_parts(gl, Box::new(WindowContext(Rc::clone(&window)))));
         let target = SurfaceTarget {
-            backend: backend.clone(),
+            backend: Rc::clone(&backend),
             window,
             presentation: Presentation::default(),
             size: Rc::new(Cell::new(framebuffer_size)),
@@ -605,7 +610,7 @@ impl FrameTarget for SurfaceTarget {
         }
         let mut image = self.image.borrow_mut();
         if image.is_none() {
-            let resource = WindowResource { context: self.backend.gl_context()?.weak(), size: self.size.clone() };
+            let resource = WindowResource { context: self.backend.gl_context()?.weak(), size: Rc::clone(&self.size) };
             *image = Some(Rc::new(DrawTarget::new(self.size.get(), Rc::new(resource))));
         }
         let image = image.clone()?;
@@ -614,7 +619,8 @@ impl FrameTarget for SurfaceTarget {
         Some(image)
     }
 
-    /// Presents the frame, with the overlay over it.
+    /// Presents the frame, with the overlay over it. A frame that the window
+    /// doesn't take, having gone away, is dropped.
     fn end_frame(&self, _encoder: &dyn CommandEncoder) -> Handoff {
         self.in_frame.set(false);
         let Some(context) = self.backend.gl_context() else {
@@ -633,8 +639,7 @@ impl FrameTarget for SurfaceTarget {
             image.data = context.read_framebuffer(size);
             *self.presentation.readback.borrow_mut() = Some(image);
         }
-        self.window.swap();
-        Handoff::Presented
+        if self.window.swap() { Handoff::Presented } else { Handoff::Dropped }
     }
 }
 

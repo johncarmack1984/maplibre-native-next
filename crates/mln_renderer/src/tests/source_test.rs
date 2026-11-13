@@ -11,7 +11,7 @@ use mln_map_types::{
 };
 use mln_storage::response::{Reason, ResourceError};
 use mln_storage::stub_file_source::{ResponseType, StubFileSource};
-use mln_storage::{AsyncRequest, Callback, FileSource, Kind, Resource, ResourceOptions, Response};
+use mln_storage::{AsyncRequest, Callback, FileSource, Kind, RequestOrder, Resource, ResourceOptions, Response};
 use mln_style::layer::{Layer, downcast_arc};
 use mln_style::layer_properties::LayerProperties;
 use mln_style::layers::circle_layer::Impl as CircleLayerImpl;
@@ -30,13 +30,14 @@ use mln_style::sources::custom_vector_source::{
 };
 use mln_style::sources::geojson_source::{GeoJSONOptions, GeoJSONSource, create_geojson_data};
 use mln_style::sources::geojson_source_impl;
-use mln_style::sources::tile_source::{RasterDEMSource, RasterSource, UrlOrTileset, VectorSource};
-use mln_style_types::SourceType;
+use mln_style::sources::tile_source::{self, RasterDEMSource, RasterSource, UrlOrTileset, VectorSource};
+use mln_style_types::{ProjectionDefinition, SourceType};
 use mln_tile_id::{CanonicalTileID, OverscaledTileID};
 use mln_util::error::Error;
 use mln_util::geo::LatLng;
 use mln_util::identity::SimpleIdentity;
 use mln_util::logging::{Event, EventSeverity, Log, Observer as LogObserver};
+use mln_util::range::Range;
 use mln_util::size::Size;
 use mln_util::subdivision_granularity::SubdivisionGranularitySetting;
 use mln_util::tileset::{Tileset, VectorEncoding};
@@ -44,7 +45,9 @@ use parking_lot::Mutex;
 
 use crate::render_source::{self as render_source, RenderSource, RenderSourceObserver};
 use crate::sources::render_geojson_source::RenderGeoJSONSource;
+use crate::sources::render_vector_source::RenderVectorSource;
 use crate::tile_parameters::TileParameters;
+use crate::tile_pyramid::TilePyramid;
 
 struct SourceTest {
     run_loop: RunLoop,
@@ -78,7 +81,7 @@ fn tile_parameters<'a>(
         capture_rendered_features: false,
         image_manager: crate::image_manager::ImageManager::create(),
         glyph_manager: crate::text::glyph_manager::GlyphManager::new(None),
-        dynamic_texture_atlas: std::sync::Arc::new(crate::gfx::dynamic_texture_atlas::DynamicTextureAtlas::new()),
+        dynamic_texture_atlas: Arc::new(crate::gfx::dynamic_texture_atlas::DynamicTextureAtlas::new()),
         tile_worker_transport: Rc::new(crate::tile::tile_worker_transport::InProcessTransport::new(
             thread_pool.clone(),
         )),
@@ -254,7 +257,7 @@ fn tile_empty(kind: Tiled) {
     let observer = Rc::new(StubRenderSourceObserver::default());
     let changed = Rc::new(RefCell::new(false));
     {
-        let changed = changed.clone();
+        let changed = Rc::clone(&changed);
         let end = test.end_handle();
         *observer.tile_changed.borrow_mut() = Some(Box::new(move |source_id, _tile_id| {
             assert_eq!("source", source_id);
@@ -280,7 +283,7 @@ fn tile_fail(kind: Tiled) {
     let observer = Rc::new(StubRenderSourceObserver::default());
     let failed = Rc::new(RefCell::new(false));
     {
-        let failed = failed.clone();
+        let failed = Rc::clone(&failed);
         let end = test.end_handle();
         *observer.tile_error.borrow_mut() = Some(Box::new(move |source_id, tile_id, error| {
             assert_eq!("source", source_id);
@@ -309,7 +312,7 @@ fn tile_corrupt(kind: Tiled) {
     let observer = Rc::new(StubRenderSourceObserver::default());
     let failed = Rc::new(RefCell::new(false));
     {
-        let failed = failed.clone();
+        let failed = Rc::clone(&failed);
         let end = test.end_handle();
         *observer.tile_error.borrow_mut() = Some(Box::new(move |source_id, tile_id, error| {
             assert_eq!("source", source_id);
@@ -334,7 +337,7 @@ fn tile_cancel(kind: Tiled) {
     let file_source = Arc::new(StubFileSource::new(ResponseType::Asynchronous));
     let requested = Rc::new(RefCell::new(false));
     {
-        let requested = requested.clone();
+        let requested = Rc::clone(&requested);
         let end = test.end_handle();
         file_source.set_response(Kind::Tile, move |_resource| {
             *requested.borrow_mut() = true;
@@ -352,10 +355,11 @@ fn tile_cancel(kind: Tiled) {
 }
 
 /// A file source whose tile requests never answer, as tiles in flight: it
-/// records each request's tile and each cancellation.
+/// records each request's tile and order, and each cancellation.
 #[derive(Default)]
 struct PendingTileSource {
     requested: Arc<Mutex<Vec<(i8, i32, i32)>>>,
+    orders: Arc<Mutex<Vec<RequestOrder>>>,
     cancelled: Arc<Mutex<Vec<(i8, i32, i32)>>>,
 }
 
@@ -377,7 +381,8 @@ impl FileSource for PendingTileSource {
         let data = resource.tile_data.as_ref().expect("only tiles are requested");
         let tile = (data.z, data.x, data.y);
         self.requested.lock().push(tile);
-        Box::new(PendingTileRequest { tile, cancelled: self.cancelled.clone() })
+        self.orders.lock().push(resource.order.clone());
+        Box::new(PendingTileRequest { tile, cancelled: Arc::clone(&self.cancelled) })
     }
 
     fn can_request(&self, _resource: &Resource) -> bool {
@@ -400,7 +405,7 @@ fn tile_out_of_view_keeps_loading() {
     let mut test = SourceTest::new();
     test.transform.resize(Size::new(1024, 128)).unwrap();
     let file_source = Arc::new(PendingTileSource::default());
-    let (requested, cancelled) = (file_source.requested.clone(), file_source.cancelled.clone());
+    let (requested, cancelled) = (Arc::clone(&file_source.requested), Arc::clone(&file_source.cancelled));
     let layers = Tiled::Vector.layers();
     let source = Tiled::Vector.source(tiles_tileset());
     source.load_description(&*file_source);
@@ -414,7 +419,7 @@ fn tile_out_of_view_keeps_loading() {
             bearing: Some(bearing),
             ..Default::default()
         });
-        let parameters = test.tile_parameters_with(MapMode::Continuous, Some(fs.clone()));
+        let parameters = test.tile_parameters_with(MapMode::Continuous, Some(Arc::clone(&fs)));
         render_source.update(source.base_impl(), &layers, true, needs_relayout, &parameters);
         requested.lock().clone()
     };
@@ -425,6 +430,66 @@ fn tile_out_of_view_keeps_loading() {
     let back = turn(&mut test, 0.0, false);
     assert_eq!(turned, back, "no tile is requested again");
     assert!(cancelled.lock().is_empty(), "no request is cancelled");
+}
+
+/// The requests for a view's tiles stand in the order the view needs them:
+/// the coarse cover's, then the ideal cover's from the centre outwards. A
+/// tile that leaves the view while it loads, and goes on loading next to it,
+/// stands behind them all until the view comes back to it.
+#[test]
+fn tile_requests_follow_the_view() {
+    const UNWANTED: u32 = u32::MAX;
+    let mut test = SourceTest::new();
+    // One ideal tile wide and several tall, so that a move of one tile to
+    // the side leaves every ideal tile behind, next to the new ones.
+    test.transform.resize(Size::new(256, 1024)).unwrap();
+    let file_source = Arc::new(PendingTileSource::default());
+    let (requested, orders) = (Arc::clone(&file_source.requested), Arc::clone(&file_source.orders));
+    let layers = Tiled::Vector.layers();
+    let source = Tiled::Vector.source(tiles_tileset());
+    source.load_description(&*file_source);
+    let mut render_source = render_source::create(&source.base_impl());
+    let fs: Arc<dyn FileSource> = file_source;
+    // The tiles requested so far and where their requests stand now, after
+    // an update with the camera at `center`.
+    let mut look_at = |test: &mut SourceTest, center: LatLng, needs_relayout: bool| {
+        test.transform.jump_to(&CameraOptions { center: Some(center), zoom: Some(6.0), ..Default::default() });
+        let mut parameters = test.tile_parameters_with(MapMode::Continuous, Some(Arc::clone(&fs)));
+        parameters.prefetch_zoom_delta = 4;
+        render_source.update(source.base_impl(), &layers, true, needs_relayout, &parameters);
+        let orders: Vec<u32> = orders.lock().iter().map(RequestOrder::get).collect();
+        (requested.lock().clone(), orders)
+    };
+
+    // The middle of the zoom 6 tile column `x`.
+    let column = |x: f64| LatLng::new(20.0, -180.0 + (x + 0.5) * 360.0 / 64.0).unwrap();
+    let here = column(35.0);
+    let (tiles, first) = look_at(&mut test, here, true);
+    let coarse: Vec<u32> = tiles.iter().zip(&first).filter(|(tile, _)| tile.0 == 2).map(|(_, order)| *order).collect();
+    let ideal: Vec<u32> = tiles.iter().zip(&first).filter(|(tile, _)| tile.0 == 6).map(|(_, order)| *order).collect();
+    assert_eq!(coarse.len() + ideal.len(), tiles.len());
+    assert!(!coarse.is_empty() && ideal.len() > 1, "the view has coarse tiles and several ideal ones");
+    assert!(coarse.iter().all(|order| *order > 0), "a tile's request comes after the requests that set no order");
+    assert!(coarse.iter().max() < ideal.iter().min(), "the coarse tiles come first");
+    assert!(ideal.is_sorted_by(|a, b| a < b), "the ideal tiles come in the cover's order");
+    assert!(ideal.iter().all(|order| *order < UNWANTED));
+
+    let first_tiles = tiles;
+    let (tiles, second) = look_at(&mut test, column(36.0), false);
+    assert!(tiles.len() > first.len(), "the new view needs other tiles");
+    for ((tile, before), after) in first_tiles.iter().zip(&first).zip(&second) {
+        if tile.0 == 6 {
+            assert_eq!(*after, UNWANTED, "the tiles left behind come last");
+        } else {
+            assert_eq!(after, before, "the coarse tile stays in view");
+        }
+    }
+    assert!(second[first.len()..].iter().all(|order| *order < UNWANTED));
+
+    let (back_tiles, back) = look_at(&mut test, here, false);
+    assert_eq!(back_tiles, tiles, "no tile is requested again");
+    assert_eq!(back[..first.len()], first, "the first view's tiles stand as they did");
+    assert!(back[first.len()..].iter().all(|order| *order == UNWANTED));
 }
 
 // gtest: Source.RasterTileEmpty
@@ -521,7 +586,7 @@ fn tile_attribution(kind: Tiled, attribution: &'static str) {
     let observer = Rc::new(StubStyleObserver::default());
     let changed = Rc::new(RefCell::new(false));
     {
-        let changed = changed.clone();
+        let changed = Rc::clone(&changed);
         let end = test.end_handle();
         *observer.source_changed.borrow_mut() = Some(Box::new(move |source| {
             assert_eq!(Some(attribution.to_owned()), source.get_attribution());
@@ -531,11 +596,11 @@ fn tile_attribution(kind: Tiled, attribution: &'static str) {
     }
 
     let source = kind.source(UrlOrTileset::Url("url".to_owned()));
-    source.set_observer(Some(observer.clone()));
+    source.set_observer(Some(Rc::<StubStyleObserver>::clone(&observer)));
     source.load_description(&*file_source);
 
     let mut render_source = render_source::create(&source.base_impl());
-    let fs: Arc<dyn FileSource> = file_source.clone();
+    let fs: Arc<dyn FileSource> = Arc::<StubFileSource>::clone(&file_source);
     render_source.update(
         source.base_impl(),
         &layers,
@@ -734,7 +799,7 @@ fn observe_tile_errors(render_source: &mut dyn RenderSource) -> Rc<RefCell<usize
     let errors = Rc::new(RefCell::new(0));
     let observer = Rc::new(StubRenderSourceObserver::default());
     {
-        let errors = errors.clone();
+        let errors = Rc::clone(&errors);
         *observer.tile_error.borrow_mut() = Some(Box::new(move |_, _, _| *errors.borrow_mut() += 1));
     }
     render_source.set_observer(observer);
@@ -752,7 +817,7 @@ fn geojson_source_tiles_after_data_reset() {
     .unwrap();
     let geojson_data =
         create_geojson_data(&geojson, scheduler::get_sequenced(), &GeoJSONOptions::default_options()).unwrap();
-    source.set_geojson_data(Some(geojson_data.clone()));
+    source.set_geojson_data(Some(Arc::clone(&geojson_data)));
     let mut render_source =
         RenderGeoJSONSource::new(source::downcast_arc::<geojson_source_impl::Impl>(&source.base_impl()));
 
@@ -806,7 +871,7 @@ impl SynchronousUpdateSource {
     fn new(synchronous_update: bool) -> Self {
         let options: Arc<GeoJSONOptions> =
             Arc::new(GeoJSONOptions { cluster: true, synchronous_update, ..Default::default() });
-        let source = GeoJSONSource::new("source", options.clone());
+        let source = GeoJSONSource::new("source", Arc::clone(&options));
         let render_source =
             RenderGeoJSONSource::new(source::downcast_arc::<geojson_source_impl::Impl>(&source.base_impl()));
         SynchronousUpdateSource { options, source, render_source, layers: circle_layers() }
@@ -879,7 +944,8 @@ fn geojson_source_slices_inline_while_a_background_slice_runs() {
     )
     .unwrap();
     source.set_geojson_data(Some(
-        create_geojson_data(&geojson, slicer.clone(), &GeoJSONOptions::default_options()).unwrap(),
+        create_geojson_data(&geojson, Arc::<HeldScheduler>::clone(&slicer), &GeoJSONOptions::default_options())
+            .unwrap(),
     ));
     let mut render_source =
         RenderGeoJSONSource::new(source::downcast_arc::<geojson_source_impl::Impl>(&source.base_impl()));
@@ -931,7 +997,7 @@ struct FixtureLog {
 impl FixtureLog {
     fn new() -> Self {
         let messages: Records = Arc::new(Mutex::new(Vec::new()));
-        let _ = Log::set_thread_observer(Some(Box::new(Recorder(messages.clone()))));
+        let _ = Log::set_thread_observer(Some(Box::new(Recorder(Arc::clone(&messages)))));
         FixtureLog { messages }
     }
 
@@ -967,7 +1033,7 @@ fn set_max_parent_overscale_factor() {
 
     let file_source = Arc::new(StubFileSource::new(ResponseType::Asynchronous));
     {
-        let timer = timer.clone();
+        let timer = Rc::clone(&timer);
         let end = test.end_handle();
         file_source.set_response(Kind::Tile, move |res| {
             let z = res.tile_data.as_ref().unwrap().z;
@@ -996,14 +1062,14 @@ fn set_max_parent_overscale_factor() {
 
     let observer = Rc::new(StubRenderSourceObserver::default());
     let render_source: Rc<RefCell<Box<dyn RenderSource>>> = Rc::new(RefCell::new(render_source::create(&base_impl)));
-    render_source.borrow_mut().set_observer(observer.clone());
-    let fs: Arc<dyn FileSource> = file_source.clone();
+    render_source.borrow_mut().set_observer(Rc::<StubRenderSourceObserver>::clone(&observer));
+    let fs: Arc<dyn FileSource> = Arc::<StubFileSource>::clone(&file_source);
     render_source.borrow_mut().update(
-        base_impl.clone(),
+        Arc::clone(&base_impl),
         &layers,
         true,
         true,
-        &test.tile_parameters_with(MapMode::Continuous, Some(fs.clone())),
+        &test.tile_parameters_with(MapMode::Continuous, Some(Arc::clone(&fs))),
     );
 
     {
@@ -1012,8 +1078,8 @@ fn set_max_parent_overscale_factor() {
         let thread_pool = test.thread_pool.clone();
         *observer.tile_changed.borrow_mut() = Some(Box::new(move |_, _| {
             if let Some(render_source) = render_source.upgrade() {
-                let parameters = tile_parameters(&state, &thread_pool, MapMode::Continuous, Some(fs.clone()));
-                render_source.borrow_mut().update(base_impl.clone(), &layers, true, true, &parameters);
+                let parameters = tile_parameters(&state, &thread_pool, MapMode::Continuous, Some(Arc::clone(&fs)));
+                render_source.borrow_mut().update(Arc::clone(&base_impl), &layers, true, true, &parameters);
             }
         }));
     }
@@ -1036,7 +1102,7 @@ fn raster_dem_tile_rounds_covering_zoom() {
     let requested_zooms = Rc::new(RefCell::new(Vec::<i8>::new()));
     let file_source = Arc::new(StubFileSource::new(ResponseType::Asynchronous));
     {
-        let requested_zooms = requested_zooms.clone();
+        let requested_zooms = Rc::clone(&requested_zooms);
         file_source.set_response(Kind::Tile, move |res| {
             requested_zooms.borrow_mut().push(res.tile_data.as_ref().unwrap().z);
             let mut response = Response::new();
@@ -1051,8 +1117,8 @@ fn raster_dem_tile_rounds_covering_zoom() {
 
     let observer = Rc::new(StubRenderSourceObserver::default());
     let mut render_source = render_source::create(&source.base_impl());
-    render_source.set_observer(observer.clone());
-    let fs: Arc<dyn FileSource> = file_source.clone();
+    render_source.set_observer(Rc::<StubRenderSourceObserver>::clone(&observer));
+    let fs: Arc<dyn FileSource> = Arc::<StubFileSource>::clone(&file_source);
     render_source.update(
         source.base_impl(),
         &layers,
@@ -1071,4 +1137,245 @@ fn raster_dem_tile_rounds_covering_zoom() {
     for &z in requested_zooms.borrow().iter() {
         assert_eq!(5, z);
     }
+}
+
+/// A vector source drawn with the camera of a map, whose tile requests are
+/// answered only when the test says so.
+struct TurningSource {
+    test: SourceTest,
+    file_source: Arc<StubFileSource>,
+    requests: Rc<RefCell<usize>>,
+    source: Box<dyn Source>,
+    render_source: RenderVectorSource,
+    layers: Vec<Arc<dyn LayerProperties>>,
+    prefetch_zoom_delta: u8,
+    latitude: f64,
+}
+
+impl TurningSource {
+    fn new(projection: &str, size: Size, min_zoom: u8) -> Self {
+        let mut test = SourceTest::new();
+        test.transform.resize(size).unwrap();
+        test.transform.set_projection_definition(&ProjectionDefinition::from_name(projection));
+        let file_source = Arc::new(StubFileSource::new(ResponseType::Manual));
+        let requests = Rc::new(RefCell::new(0));
+        {
+            let requests = Rc::clone(&requests);
+            file_source.set_response(Kind::Tile, move |_| {
+                *requests.borrow_mut() += 1;
+                let mut response = Response::new();
+                response.no_content = true;
+                Some(response)
+            });
+        }
+        let source = Tiled::Vector.source(UrlOrTileset::Tileset(Tileset {
+            tiles: vec!["tiles".to_owned()],
+            zoom_range: Range::new(min_zoom, 14),
+            ..Default::default()
+        }));
+        source.load_description(&*file_source);
+        let render_source = RenderVectorSource::new(source::downcast_arc::<tile_source::Impl>(&source.base_impl()));
+        TurningSource {
+            test,
+            file_source,
+            requests,
+            source,
+            render_source,
+            layers: Tiled::Vector.layers(),
+            prefetch_zoom_delta: 0,
+            latitude: 0.0,
+        }
+    }
+
+    fn pyramid(&self) -> &TilePyramid {
+        &self.render_source.tile_source().tile_pyramid
+    }
+
+    /// Moves the camera and updates the source, as a frame would.
+    fn update(&mut self, longitude: f64, zoom: f64) {
+        self.test.transform.jump_to(&CameraOptions {
+            center: Some(LatLng::new(self.latitude, longitude).unwrap()),
+            zoom: Some(zoom),
+            ..Default::default()
+        });
+        let file_source: Arc<dyn FileSource> = Arc::<StubFileSource>::clone(&self.file_source);
+        let mut parameters = self.test.tile_parameters_with(MapMode::Continuous, Some(file_source));
+        parameters.prefetch_zoom_delta = self.prefetch_zoom_delta;
+        self.render_source.update(self.source.base_impl(), &self.layers, true, false, &parameters);
+    }
+
+    /// Updates the source at this camera until every tile it asks for has
+    /// loaded.
+    fn load(&mut self, longitude: f64, zoom: f64) {
+        self.update(longitude, zoom);
+        for _ in 0..100 {
+            self.file_source.respond_to_all();
+            while self.test.run_loop.run_once() {}
+            self.test.thread_pool.wait_for_empty();
+            while self.test.run_loop.run_once() {}
+            self.update(longitude, zoom);
+            if self.pyramid().is_loaded() {
+                return;
+            }
+        }
+        panic!("the tiles did not load");
+    }
+
+    /// The pyramid's tiles of zoom `z`.
+    fn tiles_at(&self, z: u8) -> Vec<CanonicalTileID> {
+        self.pyramid().get_tiles().keys().filter(|id| id.canonical.z == z).map(|id| id.canonical).collect()
+    }
+
+    /// The tiles still loading that no rendered tile stands in for.
+    fn bare_tiles(&self) -> Vec<OverscaledTileID> {
+        let rendered: Vec<CanonicalTileID> = self.pyramid().get_rendered_tiles().map(|(id, _)| id.canonical).collect();
+        self.pyramid()
+            .get_tiles()
+            .iter()
+            .filter(|(id, tile)| {
+                !tile.is_renderable()
+                    && !rendered.iter().any(|parent| *parent == id.canonical || id.canonical.is_child_of(parent))
+            })
+            .map(|(id, _)| *id)
+            .collect()
+    }
+}
+
+/// A globe turned to its far side before any tile there has loaded draws the
+/// source's first level in their place.
+fn globe_far_side_falls_back_to_the_base_level(size: Size, min_zoom: u8, zoom: f64) {
+    let mut turning = TurningSource::new("vertical-perspective", size, min_zoom);
+    turning.prefetch_zoom_delta = 4;
+    turning.load(60.0, zoom);
+    assert_eq!(1 << (2 * min_zoom), turning.tiles_at(min_zoom).len(), "the whole first level is loaded");
+    assert!(
+        turning.pyramid().get_rendered_tiles().all(|(id, _)| id.canonical.z > min_zoom),
+        "the loaded view draws none of it"
+    );
+
+    turning.update(240.0, zoom);
+    let loading = turning.pyramid().get_tiles().values().filter(|tile| !tile.is_renderable()).count();
+    assert!(loading > 0, "the far side has tiles to load");
+    assert_eq!(Vec::<OverscaledTileID>::new(), turning.bare_tiles());
+    assert!(turning.pyramid().get_rendered_tiles().any(|(id, _)| id.canonical.z == min_zoom));
+}
+
+#[test]
+fn globe_far_side_falls_back_to_zoom_zero() {
+    globe_far_side_falls_back_to_the_base_level(Size::new(1920, 1080), 0, 5.0);
+}
+
+#[test]
+fn globe_far_side_falls_back_to_zoom_one() {
+    globe_far_side_falls_back_to_the_base_level(Size::new(512, 512), 1, 3.0);
+}
+
+/// The tiles past the antimeridian have another wrap than the zoom-0 tile,
+/// which stands in for them all the same, and is drawn once.
+#[test]
+fn globe_fallback_crosses_the_antimeridian() {
+    let mut turning = TurningSource::new("vertical-perspective", Size::new(512, 512), 0);
+    turning.load(90.0, 2.0);
+    assert!(turning.pyramid().get_rendered_tiles().all(|(id, _)| id.canonical.z == 2));
+
+    turning.update(150.0, 2.0);
+    let wraps = |renderable: bool| -> Vec<i16> {
+        let tiles = turning.pyramid().get_tiles();
+        let mut wraps: Vec<i16> = tiles
+            .iter()
+            .filter(|(id, tile)| id.canonical.z == 2 && tile.is_renderable() == renderable)
+            .map(|(id, _)| id.wrap)
+            .collect();
+        wraps.dedup();
+        wraps
+    };
+    assert_eq!((vec![0], vec![1]), (wraps(true), wraps(false)));
+    assert_eq!(Vec::<OverscaledTileID>::new(), turning.bare_tiles());
+    assert_eq!(1, turning.pyramid().get_rendered_tiles().filter(|(id, _)| id.canonical.z == 0).count());
+}
+
+/// While the globe blends into Mercator, a tile's flat half is placed by its
+/// wrap, so the tiles past the antimeridian don't take the zoom-0 tile of
+/// the other wrap.
+#[test]
+fn globe_fallback_keeps_to_its_wrap_while_blending_into_mercator() {
+    let mut turning = TurningSource::new("vertical-perspective", Size::new(512, 512), 0);
+    turning.test.transform.set_projection_definition(&ProjectionDefinition::between_names(
+        "vertical-perspective",
+        "mercator",
+        0.5,
+    ));
+    turning.load(90.0, 2.0);
+    assert_eq!(1, turning.tiles_at(0).len());
+
+    turning.update(150.0, 2.0);
+    let bare = turning.bare_tiles();
+    assert_ne!(Vec::<OverscaledTileID>::new(), bare);
+    assert!(bare.iter().all(|id| id.wrap == 1 && id.canonical.z == 2));
+    assert_eq!(0, turning.pyramid().get_rendered_tiles().filter(|(id, _)| id.canonical.z == 0).count());
+}
+
+/// The first level costs a source that starts at zoom 1 the tiles of it that
+/// the view doesn't show, and a Mercator map nothing.
+#[test]
+fn globe_base_level_requests() {
+    let mut globe = TurningSource::new("vertical-perspective", Size::new(512, 512), 1);
+    globe.load(60.0, 3.0);
+    let mut mercator = TurningSource::new("mercator", Size::new(512, 512), 1);
+    mercator.load(60.0, 3.0);
+    assert_eq!(Vec::<CanonicalTileID>::new(), mercator.tiles_at(1));
+    assert_eq!(4, globe.tiles_at(1).len());
+    let view = globe.pyramid().get_tiles().len() - 4;
+    assert_eq!(view + 4, *globe.requests.borrow());
+}
+
+#[test]
+fn globe_base_level_is_released() {
+    let mut turning = TurningSource::new("vertical-perspective", Size::new(512, 512), 1);
+    turning.load(60.0, 3.0);
+    assert_eq!(4, turning.tiles_at(1).len());
+
+    // The planet's radius passes twice the viewport's side between these.
+    turning.update(60.0, 3.6);
+    assert_eq!(4, turning.tiles_at(1).len());
+    turning.update(60.0, 3.7);
+    assert_eq!(Vec::<CanonicalTileID>::new(), turning.tiles_at(1));
+
+    turning.update(60.0, 3.0);
+    assert_eq!(4, turning.tiles_at(1).len());
+    turning.test.transform.set_projection_definition(&ProjectionDefinition::from_name("mercator"));
+    turning.update(60.0, 3.0);
+    assert_eq!(Vec::<CanonicalTileID>::new(), turning.tiles_at(1));
+}
+
+/// The globe is larger away from the equator at the same zoom, so the first
+/// level is let go of at a lower zoom there.
+#[test]
+fn globe_base_level_is_released_sooner_away_from_the_equator() {
+    let mut turning = TurningSource::new("vertical-perspective", Size::new(512, 512), 1);
+    turning.latitude = 60.0;
+    turning.load(60.0, 2.6);
+    assert_eq!(4, turning.tiles_at(1).len());
+
+    // At 60 degrees the planet is twice its size at the equator: its radius
+    // passes twice the viewport's side a zoom lower.
+    turning.update(60.0, 2.7);
+    assert_eq!(Vec::<CanonicalTileID>::new(), turning.tiles_at(1));
+}
+
+/// A first level of sixteen tiles is not kept, nor one that the search for a
+/// loaded parent would not reach.
+#[test]
+fn globe_base_level_is_not_kept_where_it_is_large_or_out_of_reach() {
+    let mut large = TurningSource::new("vertical-perspective", Size::new(512, 512), 2);
+    large.load(60.0, 3.0);
+    assert_eq!(Vec::<CanonicalTileID>::new(), large.tiles_at(2));
+
+    let mut out_of_reach = TurningSource::new("vertical-perspective", Size::new(512, 512), 1);
+    source::set_max_overscale_factor_for_parent_tiles(&*out_of_reach.source, Some(1));
+    out_of_reach.load(60.0, 3.0);
+    assert_eq!(Vec::<CanonicalTileID>::new(), out_of_reach.tiles_at(1));
+    source::set_max_overscale_factor_for_parent_tiles(&*out_of_reach.source, Some(2));
+    out_of_reach.load(60.0, 3.0);
+    assert_eq!(4, out_of_reach.tiles_at(1).len());
 }

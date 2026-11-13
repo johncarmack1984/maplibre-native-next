@@ -74,20 +74,20 @@ impl<T: CollectionElement + ?Sized> CollectionBase<T> {
     }
 
     pub(crate) fn get_wrappers(&self) -> Vec<&T> {
-        self.wrappers.iter().map(std::convert::AsRef::as_ref).collect()
+        self.wrappers.iter().map(AsRef::as_ref).collect()
     }
 
     pub(crate) fn get_wrappers_mut(&mut self) -> Vec<&mut T> {
-        self.wrappers.iter_mut().map(std::convert::AsMut::as_mut).collect()
+        self.wrappers.iter_mut().map(AsMut::as_mut).collect()
     }
 
     #[must_use]
     pub(crate) fn get_impls(&self) -> ImmutableVector<T::Impl> {
-        self.impls.clone()
+        Arc::clone(&self.impls)
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = &T> {
-        self.wrappers.iter().map(std::convert::AsRef::as_ref)
+        self.wrappers.iter().map(AsRef::as_ref)
     }
 
     pub(crate) fn clear(&mut self) {

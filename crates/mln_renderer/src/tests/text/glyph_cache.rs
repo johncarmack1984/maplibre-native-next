@@ -24,7 +24,7 @@ fn intern_range(cache: &GlyphCache, data: &[u8]) -> Vec<Arc<Glyph>> {
 }
 
 fn range(id: char, glyph: &Arc<Glyph>) -> GlyphCacheRange {
-    GlyphCacheRange::from([(GlyphID::new(id as u32), glyph.clone())])
+    GlyphCacheRange::from([(GlyphID::new(id as u32), Arc::clone(glyph))])
 }
 
 // gtest: GlyphCache.InternsEqualGlyphsOnce
@@ -77,7 +77,7 @@ fn interns_the_glyphs_of_a_range_parsed_on_two_threads() {
         (a.join().unwrap(), b.join().unwrap())
     });
 
-    assert_ne!(first, [] as [std::sync::Arc<mln_text::Glyph>; 0]);
+    assert_ne!(first, Vec::<Arc<Glyph>>::new());
     assert_eq!(first.len(), second.len());
     assert!(first.iter().zip(&second).all(|(a, b)| Arc::ptr_eq(a, b)));
 }

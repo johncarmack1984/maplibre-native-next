@@ -99,7 +99,7 @@ impl<T: Clone + Debug + PartialEq + 'static> PropertyValueLike for PropertyValue
 
     fn retain_prior_global_state(&mut self, change: &GlobalStateChange) {
         if self.is_expression() && self.transitions_on_global_state_change(Some(&change.changed_keys)) {
-            self.as_expression_mut().pin_global_state(change.prior_state.clone());
+            self.as_expression_mut().pin_global_state(std::sync::Arc::clone(&change.prior_state));
         }
     }
 }
@@ -368,7 +368,7 @@ where
         || (parameters.zoom_changed && dependencies.intersects(Dependency::ZOOM))
         || (parameters.global_state_changed
             && dependencies.intersects(Dependency::GLOBAL_STATE)
-            && crate::expression::global_state_refs_intersect(
+            && global_state_refs_intersect(
                 property.get_value().get_global_state_refs(),
                 parameters.changed_global_state_keys.as_deref(),
             ));

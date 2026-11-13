@@ -41,12 +41,12 @@ static DEVICES: HandleTable<Device> = HandleTable::new(HandleKind::GpuDevice);
 pub(crate) const BACKENDS: &[(BackendType, mln_render_backend, mln_render_backend_flags)] = &[
     #[cfg(target_vendor = "apple")]
     (BackendType::Metal, types::MLN_RENDER_BACKEND_METAL, types::MLN_RENDER_BACKEND_FLAG_METAL),
-    #[cfg(not(any(target_vendor = "apple", target_family = "wasm")))]
+    #[cfg(backend_vulkan)]
     (BackendType::Vulkan, MLN_RENDER_BACKEND_VULKAN, types::MLN_RENDER_BACKEND_FLAG_VULKAN),
     // OpenGL comes through EGL, and on Windows through WGL.
-    #[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
+    #[cfg(backend_gl)]
     (BackendType::OpenGL, MLN_RENDER_BACKEND_OPEN_GL, types::MLN_RENDER_BACKEND_FLAG_OPEN_GL),
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(feature = "webgpu", not(target_family = "wasm")))]
     (BackendType::WebGPU, MLN_RENDER_BACKEND_WEB_GPU, types::MLN_RENDER_BACKEND_FLAG_WEB_GPU),
     // A browser build has one of the two.
     #[cfg(all(target_family = "wasm", feature = "webgpu"))]
@@ -78,16 +78,16 @@ pub(crate) fn resolve(device: mln_gpu_device) -> Result<Option<Device>, Error> {
 
 /// The callbacks run inside the queue's mutex, which a session on the same
 /// queue takes again to submit.
-#[cfg(not(any(target_vendor = "apple", target_family = "wasm")))]
+#[cfg(backend_vulkan)]
 const QUEUE_LOCK_REENTRY: &str = "the C API cannot be called from a queue lock callback";
 
 /// A host's `mln_queue_lock`, which a Vulkan device holds around its queue
 /// calls. Once accepted, it releases its user data when the device goes.
 pub(crate) struct HostQueueLock {
     // Only a Vulkan device calls them; other builds still check the lock.
-    #[cfg_attr(any(target_vendor = "apple", target_family = "wasm"), allow(dead_code))]
+    #[cfg_attr(not(backend_vulkan), allow(dead_code))]
     lock: unsafe extern "C" fn(*mut c_void),
-    #[cfg_attr(any(target_vendor = "apple", target_family = "wasm"), allow(dead_code))]
+    #[cfg_attr(not(backend_vulkan), allow(dead_code))]
     unlock: unsafe extern "C" fn(*mut c_void),
     user_data: UserData,
     release: mln_user_data_release,
@@ -120,7 +120,7 @@ impl HostQueueLock {
     }
 }
 
-#[cfg(not(any(target_vendor = "apple", target_family = "wasm")))]
+#[cfg(backend_vulkan)]
 impl mln_vulkan::QueueLock for HostQueueLock {
     /// Refuses once the process is exiting, when the host's runtime may be
     /// gone: the queue call that wanted the lock then fails.
@@ -197,7 +197,7 @@ unsafe fn request(options: *const mln_gpu_device_options) -> Result<Request, Err
     let backend = fields
         .get(MLN_GPU_DEVICE_OPTION_BACKEND, options.backend)
         .map(|backend| match backend {
-            crate::generated::types::MLN_RENDER_BACKEND_METAL => Ok(BackendType::Metal),
+            types::MLN_RENDER_BACKEND_METAL => Ok(BackendType::Metal),
             MLN_RENDER_BACKEND_VULKAN => Ok(BackendType::Vulkan),
             MLN_RENDER_BACKEND_OPEN_GL => Ok(BackendType::OpenGL),
             MLN_RENDER_BACKEND_WEB_GPU => Ok(BackendType::WebGPU),
@@ -282,10 +282,10 @@ fn create(request: Request) -> Result<(Device, Option<std::sync::Arc<HostQueueLo
     check_open_gl_options(&request, device.backend())?;
     match (request.queue_lock, device) {
         (None, device) => Ok((device, None)),
-        #[cfg(not(any(target_vendor = "apple", target_family = "wasm")))]
+        #[cfg(backend_vulkan)]
         (Some(lock), Device::Vulkan(device)) => {
             let lock = std::sync::Arc::new(lock);
-            let device = device.with_queue_lock(lock.clone())?;
+            let device = device.with_queue_lock(std::sync::Arc::<HostQueueLock>::clone(&lock))?;
             Ok((Device::Vulkan(device), Some(lock)))
         }
         (Some(_), _) => Err(Error::new(ErrorKind::Unsupported, "only a Vulkan device takes a queue lock")),
@@ -373,7 +373,7 @@ fn capabilities(device: &Device) -> mln_gpu_device_capabilities {
         .filter(|(surface, _)| device.presents_to(*surface))
         .fold(offscreen, |kinds, (_, flag)| kinds | flag);
     let mut sync = SyncKinds::NONE;
-    #[cfg(not(any(target_vendor = "apple", target_family = "wasm")))]
+    #[cfg(backend_vulkan)]
     if let Device::Vulkan(vulkan) = device {
         if vulkan.presents() {
             target_kinds |= types::MLN_RENDER_TARGET_KIND_FLAG_VULKAN_SURFACE;
@@ -382,7 +382,7 @@ fn capabilities(device: &Device) -> mln_gpu_device_capabilities {
         let (producer, consumer) = vulkan.sync_kinds();
         sync = producer.union(consumer);
     }
-    #[cfg(any(windows, all(unix, not(target_vendor = "apple"))))]
+    #[cfg(backend_gl)]
     if let Device::Gl(gl) = device
         && gl.is_host()
     {
@@ -507,7 +507,7 @@ pub(crate) unsafe extern "C" fn mln_gpu_device_wrap_vulkan(
         let lock = HostQueueLock::new(&descriptor.queue_lock)?;
         // SAFETY: the caller's contract.
         let out_device = unsafe { handles::out_handle(out_device, "out_device") }?;
-        #[cfg(not(any(target_vendor = "apple", target_family = "wasm")))]
+        #[cfg(backend_vulkan)]
         {
             use mln_vulkan::ash::vk::{self, Handle as _};
             // SAFETY: function pointers that the header names, or null.
@@ -522,7 +522,7 @@ pub(crate) unsafe extern "C" fn mln_gpu_device_wrap_vulkan(
                 )
             };
             let lock = lock.map(std::sync::Arc::new);
-            let queue_lock = lock.clone().map(|lock| lock as std::sync::Arc<dyn mln_vulkan::QueueLock>);
+            let queue_lock = lock.clone().map(|lock| -> std::sync::Arc<dyn mln_vulkan::QueueLock> { lock });
             let host = mln_vulkan::HostDevice {
                 get_instance_proc_addr,
                 get_device_proc_addr,
@@ -544,7 +544,7 @@ pub(crate) unsafe extern "C" fn mln_gpu_device_wrap_vulkan(
             }
             Ok(())
         }
-        #[cfg(any(target_vendor = "apple", target_family = "wasm"))]
+        #[cfg(not(backend_vulkan))]
         {
             let _ = (lock, out_device, enabled_extensions);
             Err(Error::new(ErrorKind::Unsupported, "this build draws with no Vulkan"))
@@ -560,7 +560,7 @@ pub(crate) unsafe extern "C" fn mln_gpu_device_wrap_vulkan(
 /// `extensions` is null or points to `count` readable views, whose data is
 /// readable.
 unsafe fn vulkan_extensions(
-    extensions: *const crate::generated::types::mln_buffer_view,
+    extensions: *const types::mln_buffer_view,
     count: usize,
 ) -> Result<Vec<std::ffi::CString>, Error> {
     let name = "mln_vulkan_device_descriptor.enabled_extensions";
@@ -576,7 +576,7 @@ unsafe fn vulkan_extensions(
         .iter()
         .map(|view| {
             // SAFETY: the caller's contract.
-            let text = unsafe { crate::buffer::text(*view, name) }?;
+            let text = unsafe { buffer::text(*view, name) }?;
             std::ffi::CString::new(text)
                 .map_err(|_| Error::invalid_argument(format!("{name} must not hold a NUL character")))
         })
@@ -636,7 +636,7 @@ pub(crate) unsafe extern "C" fn mln_gpu_device_wrap_open_gl(
         let platform = open_gl_platform(context)?;
         // SAFETY: the caller's contract.
         let out_device = unsafe { handles::out_handle(out_device, "out_device") }?;
-        #[cfg(all(unix, not(target_vendor = "apple")))]
+        #[cfg(all(backend_gl, unix))]
         if context.platform == types::MLN_OPEN_GL_CONTEXT_PLATFORM_EGL {
             // SAFETY: the variant that `platform` names, checked above.
             let egl = unsafe { context.data.egl };
@@ -658,7 +658,7 @@ pub(crate) unsafe extern "C" fn mln_gpu_device_wrap_open_gl(
             *out_device = DEVICES.insert(Device::web_gl(context)?.into())?;
             return Ok(());
         }
-        #[cfg(windows)]
+        #[cfg(all(backend_gl, windows))]
         if context.platform == types::MLN_OPEN_GL_CONTEXT_PLATFORM_WGL {
             // SAFETY: the variant that `platform` names, checked above.
             let wgl = unsafe { context.data.wgl };
@@ -738,7 +738,7 @@ pub(crate) unsafe extern "C" fn mln_gpu_device_get_vulkan_context(
     export!(out_diagnostic, non_null(out_result), {
         let device = DEVICES.get(device)?;
         match &*device {
-            #[cfg(not(any(target_vendor = "apple", target_family = "wasm")))]
+            #[cfg(backend_vulkan)]
             Device::Vulkan(vulkan) => {
                 use mln_vulkan::ash::vk::Handle as _;
                 let raw = vulkan.raw();
@@ -851,7 +851,7 @@ mod tests {
     fn the_mask_names_each_backend_once() {
         let mask = supported_backend_mask();
         assert_eq!(mask.count_ones() as usize, BACKENDS.len());
-        let metal = crate::generated::types::MLN_RENDER_BACKEND_FLAG_METAL;
+        let metal = types::MLN_RENDER_BACKEND_FLAG_METAL;
         assert_eq!(mask & metal != 0, cfg!(target_vendor = "apple"));
     }
 }

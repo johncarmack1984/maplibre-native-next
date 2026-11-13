@@ -19,7 +19,7 @@
 //
 // The transfer itself is an `HttpTransport`, the platform's HTTP stack where
 // it has one: NSURLSession on Apple platforms, the browser's fetch on wasm,
-// ureq elsewhere, or another HTTP stack a host sets with `set_transport`.
+// ureq elsewhere.
 //
 // Differences (ureq): ureq sends `Accept-Encoding: gzip` and
 // decodes gzip (curl: "gzip, deflate"); a connection failure's message is
@@ -27,7 +27,6 @@
 // read in the three formats of RFC 9110 only, where libcurl's `curl_getdate`
 // also takes other zones and free-form dates.
 
-use std::any::Any;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -189,16 +188,6 @@ pub(crate) trait HttpTransport: Send + Sync {
     fn start(&self, request: TransferRequest);
 }
 
-static TRANSPORT: Mutex<Option<Arc<dyn HttpTransport>>> = Mutex::new(None);
-
-/// The transport `set_transport` set, else the default.
-fn current_transport() -> Arc<dyn HttpTransport> {
-    if let Some(transport) = TRANSPORT.lock().clone() {
-        return transport;
-    }
-    default_transport()
-}
-
 #[cfg(target_vendor = "apple")]
 fn default_transport() -> Arc<dyn HttpTransport> {
     Arc::new(crate::nsurlsession_transport::NSURLSessionTransport::new())
@@ -335,12 +324,11 @@ pub(crate) struct HTTPFileSource {
 }
 
 impl HTTPFileSource {
-    /// An HTTP file source over the transport `set_transport` set, else
-    /// the platform's default.
+    /// An HTTP file source over the platform's HTTP stack.
     #[must_use]
     pub(crate) fn new(resource_options: &ResourceOptions) -> Self {
         HTTPFileSource {
-            transport: current_transport(),
+            transport: default_transport(),
             header_transform: Mutex::new(HttpHeaderTransform::default()),
             resource_options: Mutex::new(resource_options.clone()),
         }
@@ -350,7 +338,7 @@ impl HTTPFileSource {
     /// calling thread's `RunLoop`.
     pub(crate) fn request(&self, resource: &Resource, callback: Callback) -> Box<dyn AsyncRequest> {
         let state = Rc::new(HTTPRequestState { callback: RefCell::new(callback) });
-        let mailbox = Mailbox::with_target(&scheduler::get_current(), state as Rc<dyn Any>);
+        let mailbox = Mailbox::with_target(&scheduler::get_current(), state);
         let cancellation = Arc::new(Cancellation::default());
         let header_transform = self.header_transform.lock().clone();
         let headers = header_transform.headers(resource.kind, &resource.url);
@@ -358,7 +346,7 @@ impl HTTPFileSource {
             resource: resource.clone(),
             headers,
             reply: ActorRef::new(&mailbox),
-            cancellation: cancellation.clone(),
+            cancellation: Arc::clone(&cancellation),
         });
         Box::new(HTTPRequest { mailbox, cancellation })
     }

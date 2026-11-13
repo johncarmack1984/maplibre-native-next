@@ -72,7 +72,7 @@ impl Scope {
     #[must_use]
     pub(crate) fn get(&self, name: &str) -> Option<Arc<dyn Expression>> {
         if let Some(binding) = self.bindings.get(name) {
-            Some(binding.clone())
+            Some(Arc::clone(binding))
         } else if let Some(parent) = &self.parent {
             parent.get(name)
         } else {
@@ -175,7 +175,9 @@ fn expression_registry(name: &str) -> Option<ParseFunction> {
         "distance" => Distance::parse,
         "format" => FormatExpression::parse,
         "image" => ImageExpression::parse,
-        "interpolate" | "interpolate-hcl" | "interpolate-lab" | "interpolate-oklch" => parse_interpolate,
+        "interpolate" | "interpolate-hcl" | "interpolate-lab" | "interpolate-oklch" | "interpolate-oklab" => {
+            parse_interpolate
+        }
         "length" => Length::parse,
         "let" => Let::parse,
         "literal" => Literal::parse,
@@ -300,7 +302,7 @@ impl ParsingContext {
     ) -> ParseResult {
         let mut child = ParsingContext::child(
             format!("{}[{}]", self.key, index),
-            self.errors.clone(),
+            Rc::clone(&self.errors),
             expected,
             self.scope.clone(),
         );
@@ -317,7 +319,7 @@ impl ParsingContext {
     ) -> ParseResult {
         let mut child = ParsingContext::child(
             format!("{}[{}]", self.key, index),
-            self.errors.clone(),
+            Rc::clone(&self.errors),
             expected,
             Some(Rc::new(Scope::new(bindings.clone(), self.scope.clone()))),
         );

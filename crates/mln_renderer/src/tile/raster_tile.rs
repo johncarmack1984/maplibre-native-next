@@ -4,7 +4,6 @@
 // `RasterTileMessage`s, and the worker is created by the
 // `TileWorkerTransport` of the TileParameters (tile_worker_transport.rs).
 
-use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -23,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::bucket::BucketPtr;
 use crate::buckets::raster_bucket::RasterBucket;
 use crate::tile::ordered_replies::OrderedReplies;
-use crate::tile::tile::{Kind, Tile, TileBase, TileNecessity, TileOperation, TileUpdateParameters};
+use crate::tile::tile::{Kind, Tile, TileBase, TileLoadOrder, TileNecessity, TileOperation, TileUpdateParameters};
 use crate::tile::tile_loader::{LoaderTile, TileLoader, VectorTileEncoding};
 use crate::tile::tile_observer::TileObserver;
 use crate::tile::tile_worker_transport::{TileEndpoint, WorkerEndpoint};
@@ -222,9 +221,9 @@ impl RasterTile {
             missing: Cell::new(false),
             bucket: RefCell::new(None),
             worker,
-            mailbox: mailbox.clone(),
+            mailbox: Arc::clone(&mailbox),
         });
-        mailbox.open(&scheduler::get_current(), inner.clone() as Rc<dyn Any>);
+        mailbox.open(&scheduler::get_current(), Rc::<RasterTileInner>::clone(&inner));
         let weak: std::rc::Weak<RasterTileInner> = Rc::downgrade(&inner);
         let loader = TileLoader::new(weak, VectorTileEncoding::Mvt, &id, parameters, tileset);
         RasterTile { inner, loader: Some(loader) }
@@ -255,13 +254,19 @@ impl Tile for RasterTile {
     }
 
     fn create_render_data(&self) -> Box<dyn TileRenderData> {
-        let bucket: Option<BucketPtr> = self.inner.bucket.borrow().clone().map(|b| b as BucketPtr);
+        let bucket = self.inner.bucket.borrow().clone().map(|b| -> BucketPtr { b });
         Box::new(SharedBucketTileRenderData::new(bucket))
     }
 
     fn set_necessity(&self, necessity: TileNecessity) {
         if let Some(loader) = &self.loader {
             loader.set_necessity(necessity);
+        }
+    }
+
+    fn set_load_order(&self, order: TileLoadOrder) {
+        if let Some(loader) = &self.loader {
+            loader.set_load_order(order);
         }
     }
 

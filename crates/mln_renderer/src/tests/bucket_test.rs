@@ -82,8 +82,8 @@ fn collection(rings: &[&[(i16, i16)]]) -> GeometryCollection {
 /// Runs `f` with an upload pass of an offscreen target (the C++ tests create
 /// a `gl::HeadlessBackend`, a context and an upload pass).
 fn with_upload_pass(f: impl FnOnce(&dyn mln_gfx::UploadPass)) {
-    let backend = std::rc::Rc::new(mln_webgpu::RendererBackend::new(&Device::new(None).expect("device")));
-    let target = OffscreenTarget::new(backend.clone(), Size { width: 512, height: 256 });
+    let backend = Rc::new(mln_webgpu::RendererBackend::new(&Device::new(None).expect("device")));
+    let target = OffscreenTarget::new(Rc::clone(&backend), Size { width: 512, height: 256 });
     let _scope = BackendScope::new(&*backend, ScopeType::Explicit);
     let context = backend.get_context();
     let command_encoder = context.create_command_encoder();
@@ -381,8 +381,8 @@ fn line_bucket_drawables_build_from_freed_indexes() {
         .unwrap();
     assert!(bucket.has_data());
 
-    let backend = std::rc::Rc::new(mln_webgpu::RendererBackend::new(&Device::new(None).expect("device")));
-    let target = OffscreenTarget::new(backend.clone(), Size { width: 512, height: 256 });
+    let backend = Rc::new(mln_webgpu::RendererBackend::new(&Device::new(None).expect("device")));
+    let target = OffscreenTarget::new(Rc::clone(&backend), Size { width: 512, height: 256 });
     let _scope = BackendScope::new(&*backend, ScopeType::Explicit);
     let context = backend.get_context();
     let command_encoder = context.create_command_encoder();
@@ -649,7 +649,7 @@ struct FixtureLog(Records);
 impl FixtureLog {
     fn new() -> Self {
         let records: Records = Arc::new(Mutex::new(Vec::new()));
-        let _ = Log::set_thread_observer(Some(Box::new(Recorder(records.clone()))));
+        let _ = Log::set_thread_observer(Some(Box::new(Recorder(Arc::clone(&records)))));
         FixtureLog(records)
     }
     fn count(&self, severity: EventSeverity, event: Event, msg: &str) -> usize {

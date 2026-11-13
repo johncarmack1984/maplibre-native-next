@@ -161,7 +161,7 @@ impl Painter {
 
         let push_constants = [vk::PushConstantRange::default()
             .stage_flags(vk::ShaderStageFlags::VERTEX)
-            .size(std::mem::size_of::<[f32; 2]>() as u32)];
+            .size(size_of::<[f32; 2]>() as u32)];
         let set_layouts = [set_layout];
         let create_info =
             vk::PipelineLayoutCreateInfo::default().set_layouts(&set_layouts).push_constant_ranges(&push_constants);
@@ -325,7 +325,7 @@ impl Painter {
     /// destroys itself too.
     fn free_texture(&self, texture: Texture) {
         let Texture { texture, set } = texture;
-        let free_sets = self.free_sets.clone();
+        let free_sets = Rc::clone(&self.free_sets);
         destroy_later(&self.context, move || free_sets.borrow_mut().push(set));
         drop(texture);
     }
@@ -409,7 +409,7 @@ impl Painter {
         let mut draws = Vec::with_capacity(meshes.len());
         for (clip, mesh) in &meshes {
             let first_vertex = vertices.len() / VERTEX_STRIDE as usize;
-            let first_index = indexes.len() / std::mem::size_of::<u32>();
+            let first_index = indexes.len() / size_of::<u32>();
             draws.push((*clip, mesh.texture_id, first_vertex, first_index, mesh.indices.len()));
             for vertex in &mesh.vertices {
                 for value in [vertex.pos.x, vertex.pos.y, vertex.uv.x, vertex.uv.y] {

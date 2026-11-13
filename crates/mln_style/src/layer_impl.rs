@@ -111,7 +111,8 @@ impl std::ops::Deref for dyn Impl {
 impl dyn Impl {
     /// The impl as a `T`, if it is one.
     pub fn downcast_ref<T: Impl>(&self) -> Option<&T> {
-        (self as &dyn Any).downcast_ref()
+        let any: &dyn Any = self;
+        any.downcast_ref()
     }
 }
 
@@ -121,7 +122,7 @@ impl dyn Impl {
 ///
 /// If `impl_` is not a `T`.
 pub fn downcast_arc<T: Impl>(impl_: &Arc<dyn Impl>) -> Arc<T> {
-    let any: Arc<dyn Any + Send + Sync> = impl_.clone();
+    let any: Arc<dyn Any + Send + Sync> = Arc::<dyn Impl>::clone(impl_);
     let Ok(typed) = any.downcast::<T>() else {
         panic!("downcast_arc: layer impl type mismatch");
     };

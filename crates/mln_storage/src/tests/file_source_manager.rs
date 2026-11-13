@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use mln_actor::RunLoop;
 
 use super::serial;
-use crate::file_source::{FileSource, FileSourceType};
+use crate::file_source::FileSourceType;
 use crate::file_source_manager::FileSourceManager;
 use crate::online_file_source::OnlineFileSource;
 use crate::resource::{Kind, Resource};
@@ -18,12 +18,12 @@ use crate::response::{Reason, ResourceError, Response};
 /// Registers a `Network` factory on `manager` that counts its calls.
 fn count_network_factory(manager: &FileSourceManager) -> Arc<AtomicUsize> {
     let calls = Arc::new(AtomicUsize::new(0));
-    let counter = calls.clone();
+    let counter = Arc::clone(&calls);
     manager.register_file_source_factory(
         FileSourceType::Network,
         Arc::new(move |_: &FileSourceManager, options: &ResourceOptions| {
             counter.fetch_add(1, Ordering::SeqCst);
-            Arc::new(OnlineFileSource::new(options)) as Arc<dyn FileSource>
+            Arc::new(OnlineFileSource::new(options))
         }),
     );
     calls
@@ -106,7 +106,7 @@ fn loader_error(manager: &FileSourceManager) -> String {
     let run_loop = RunLoop::new();
     let loader = manager.get_file_source(FileSourceType::ResourceLoader, &ResourceOptions::default()).unwrap();
     let message = Arc::new(parking_lot::Mutex::new(String::new()));
-    let (out, stop) = (message.clone(), run_loop.clone());
+    let (out, stop) = (Arc::clone(&message), run_loop.clone());
     let _req = loader.request(
         &Resource::new(Kind::Unknown, "http://127.0.0.1:3000/test"),
         Box::new(move |res: Response| {

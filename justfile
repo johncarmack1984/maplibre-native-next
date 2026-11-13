@@ -107,13 +107,21 @@ check-wasm:  _dev-shell
     ! cargo tree --target wasm32-unknown-unknown -p mln-rs-c --no-default-features --features webgpu --edges normal --prefix none | grep -Eq '^(mln-rs-gl|glow) '
     ! cargo tree --target wasm32-unknown-unknown -p mln-rs-c --no-default-features --features gl --edges normal --prefix none | grep -Eq '^(mln-rs-webgpu|wgpu) '
 
+# The C library as maplibre-native-ffi's 32-bit presets build it (Android's armeabi-v7a and x86), checked on 32-bit x86
+# Linux: a type whose size a dependency asserts, or a cast that assumes a 64-bit usize, fails here. Needs a C compiler
+# for the target, for SQLite: i686-linux-gnu-gcc, or the one CC_i686_unknown_linux_gnu names.
+[doc('Check that the C library builds for a 32-bit target (i686-unknown-linux-gnu), as CI does')]
+check-32bit:
+    rustup target add i686-unknown-linux-gnu
+    cargo clippy --target i686-unknown-linux-gnu -p mln-rs-c
+
 # Run the Cargo tests as CI does (Linux and macOS), writing their coverage as LCOV for CI to upload to codecov.io
 ci-coverage:  env-info && (_coverage '--lcov' '--output-path' quote(coverage_lcov))
     rm -rf {{quote(parent_directory(coverage_lcov))}}
     mkdir -p {{quote(parent_directory(coverage_lcov))}}
 
-# Run the checks of CI's lint job: formatting, the panic and TODO(port) ratchet, clippy, the API docs, the wasm32-unknown-unknown build and the licenses, warnings as errors
-ci-lint:  env-info test-fmt ratchet clippy test-doc check-wasm licenses && assert-git-is-clean
+# Run the checks of CI's lint job: formatting, the panic and TODO(port) ratchet, clippy, the API docs, the wasm32-unknown-unknown and 32-bit builds and the licenses, warnings as errors
+ci-lint:  env-info test-fmt ratchet clippy test-doc check-wasm check-32bit licenses && assert-git-is-clean
 
 # Package every crate and compile every Cargo test target, as CI's release-crate job does
 ci-package:  env-info package && assert-git-is-clean
@@ -125,9 +133,15 @@ ci-test-msrv:  env-info test-msrv && assert-git-is-clean
 clean:
     cargo clean
 
-# Run cargo clippy to lint the code
+# Run cargo clippy to lint the code. On Linux, also lint the C library with each native backend's feature alone, as
+# maplibre-native-ffi's presets build it: the workspace's build turns them all on.
 clippy *args:
     cargo clippy --workspace --all-targets {{args}}
+    if [ {{quote(os())}} = linux ]; then \
+      for backend in vulkan gl; do \
+        cargo clippy -p mln-rs-c --all-targets --no-default-features --features "$backend" {{args}} || exit 1; \
+      done; \
+    fi
 
 # Measure the Cargo tests' coverage and open the HTML report. Uses `cargo-llvm-cov`
 coverage:  (_coverage '--open')
@@ -153,6 +167,7 @@ fmt_toolchain := 'nightly-2026-11-04'
 
 # Generated files (their first lines say "Do not edit" or "@generated") stay as their generators write them: they are not passed to
 # rustfmt, and their `mod` declarations carry #[rustfmt::skip], so formatting the module that declares them leaves them alone too.
+# The patched copies of crates.io packages in patches/ keep their upstream's formatting.
 [doc('Reformat every Rust file with the pinned nightly rustfmt, installing it if needed')]
 fmt *args:
     #!/usr/bin/env bash
@@ -160,7 +175,7 @@ fmt *args:
     files=()
     while IFS= read -r -d '' file; do
         head -n 5 "$file" | grep -q -e 'Do not edit' -e '@generated' || files+=("$file")
-    done < <(git ls-files -z '*.rs')
+    done < <(git ls-files -z '*.rs' ':!patches/')
     if ! rustup component list --toolchain {{fmt_toolchain}} --installed 2> /dev/null | grep -q '^rustfmt'; then
         rustup toolchain install {{fmt_toolchain}} --profile minimal --component rustfmt --no-self-update
     fi
@@ -265,8 +280,9 @@ c-web backend="webgpu":
     bind mln_web_shaper
 
 # Loads the package in headless Chromium and drives its raw C ABI from a Web Worker, as a JavaScript host does, until a
-# map with a GeoJSON layer that the tile workers lay out shows on an OffscreenCanvas (crates/mln_c/web-check). Needs Node
-# 24 and Playwright's Chromium (`npx playwright@1.61.1 install chromium`), as `web-check` does.
+# map with a GeoJSON layer that the tile workers lay out shows on an OffscreenCanvas, for sessions one after another on
+# devices of their own (crates/mln_c/web-check). Needs Node 24 and Playwright's Chromium
+# (`npx playwright@1.61.1 install chromium`), as `web-check` does.
 [doc("Check crates/mln_c's browser package for one backend in headless Chromium")]
 c-web-check backend="webgpu":  (c-web backend)
     node crates/mln_c/web-check/check.mjs "${CARGO_TARGET_DIR:-target}/c-web/{{backend}}" {{backend}}

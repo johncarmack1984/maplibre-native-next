@@ -291,7 +291,7 @@ impl Context {
         let context = Rc::new_cyclic(|weak| Context {
             base: ContextBase::default(),
             backend,
-            weak_self: weak.clone(),
+            weak_self: Weak::clone(weak),
             global_uniform_buffers: RefCell::new(UniformBufferArray::new()),
             global_descriptor_set: RefCell::new(None),
             descriptor_pools: RefCell::new(descriptor_pools),
@@ -383,7 +383,7 @@ impl Context {
     }
 
     pub fn weak(&self) -> Weak<Context> {
-        self.weak_self.clone()
+        Weak::clone(&self.weak_self)
     }
 
     pub(crate) fn get_backend(&self) -> &Rc<BackendImpl> {
@@ -1193,7 +1193,7 @@ impl Context {
             pipeline_info.input_bindings.push(
                 vk::VertexInputBindingDescription::default()
                     .binding(1)
-                    .stride(std::mem::size_of::<GlobeClipMaskInstance>() as u32)
+                    .stride(size_of::<GlobeClipMaskInstance>() as u32)
                     .input_rate(vk::VertexInputRate::INSTANCE),
             );
             for i in 0..3 {
@@ -1202,7 +1202,7 @@ impl Context {
                         .binding(1)
                         .location(1 + i)
                         .format(PipelineInfo::vulkan_format(AttributeDataType::Float4))
-                        .offset(i * std::mem::size_of::<[f32; 4]>() as u32),
+                        .offset(i * size_of::<[f32; 4]>() as u32),
                 );
             }
             pipeline_info.update_vertex_input_hash();
@@ -1290,7 +1290,7 @@ impl Context {
                         command_buffer,
                         0,
                         &[clip_mesh.vertices.get_vulkan_buffer(), instance_buffer.get_vulkan_buffer()],
-                        &[0, (i * std::mem::size_of::<GlobeClipMaskInstance>()) as vk::DeviceSize],
+                        &[0, (i * size_of::<GlobeClipMaskInstance>()) as vk::DeviceSize],
                     );
                     device.cmd_bind_index_buffer(
                         command_buffer,

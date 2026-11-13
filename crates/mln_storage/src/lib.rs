@@ -48,7 +48,7 @@ pub mod resource_transform;
 pub mod response;
 #[cfg(feature = "sqlite")]
 pub mod sqlite3;
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(any(test, feature = "stub-file-source"))]
 pub mod stub_file_source;
 #[cfg(not(any(target_family = "wasm", target_vendor = "apple")))]
 mod ureq_transport;
@@ -64,7 +64,7 @@ pub use main_resource_loader::MainResourceLoader;
 #[cfg(feature = "sqlite")]
 pub use offline_database::OfflineDatabase;
 pub use online_file_source::OnlineFileSource;
-pub use resource::{Kind, LoadingMethod, Resource, StoragePolicy};
+pub use resource::{Kind, LoadingMethod, RequestOrder, Resource, StoragePolicy};
 pub use resource_options::ResourceOptions;
 pub use response::{Data, ResourceError, Response};
 

@@ -188,7 +188,7 @@ impl Drawable {
             };
 
         if build_attribs {
-            let attrs = self.base.vertex_attributes.get_or_insert_with(VertexAttributeArray::new_ptr).clone();
+            let attrs = Rc::clone(self.base.vertex_attributes.get_or_insert_with(VertexAttributeArray::new_ptr));
             // Apply drawable values to shader defaults.
             let attribute_bindings = upload_pass.build_attribute_bindings(
                 self.impl_.vertex_count,
@@ -449,7 +449,7 @@ impl drawable::Drawable for Drawable {
             return;
         }
 
-        debug_assert_eq!(std::mem::size_of_val(&self.base.ubo_index), UBO_INDEX_PUSH_CONSTANT_SIZE as usize);
+        debug_assert_eq!(size_of_val(&self.base.ubo_index), UBO_INDEX_PUSH_CONSTANT_SIZE as usize);
         // SAFETY: the command buffer is recording, and the index is the
         // push constant of the general pipeline layout.
         unsafe {
@@ -554,7 +554,7 @@ impl drawable::Drawable for Drawable {
         self.impl_.vertex_count = count;
         self.impl_.vertex_type = data_type;
         if count != 0 && data_type != AttributeDataType::Invalid && !data.is_empty() {
-            let attrs = self.base.vertex_attributes.get_or_insert_with(VertexAttributeArray::new_ptr).clone();
+            let attrs = Rc::clone(self.base.vertex_attributes.get_or_insert_with(VertexAttributeArray::new_ptr));
             let mut attrs = attrs.borrow_mut();
             if let Some(attrib) = attrs.set(self.impl_.vertex_attr_id, /*index=*/ -1, data_type, 0) {
                 attrib.set_raw_data(data);

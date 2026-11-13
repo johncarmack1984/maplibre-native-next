@@ -126,7 +126,7 @@ impl RenderSource for RenderGeoJSONSource {
                     if id.canonical.z <= max_z
                         && let Some(tile) = tile.downcast_ref::<GeoJSONTile>()
                     {
-                        tile.update_data(data.clone(), needs_relayout, parameters.is_update_synchronous);
+                        tile.update_data(Arc::clone(data), needs_relayout, parameters.is_update_synchronous);
                     }
                 }
             }
@@ -147,7 +147,13 @@ impl RenderSource for RenderGeoJSONSource {
             impl_.get_zoom_range(),
             None,
             |tile_id, observer| -> Option<Box<dyn Tile>> {
-                Some(Box::new(GeoJSONTile::new(*tile_id, source_id.clone(), parameters, data.clone(), Some(observer))))
+                Some(Box::new(GeoJSONTile::new(
+                    *tile_id,
+                    source_id.clone(),
+                    parameters,
+                    Arc::clone(&data),
+                    Some(observer),
+                )))
             },
         );
     }
@@ -193,7 +199,7 @@ impl RenderSource for RenderGeoJSONSource {
         options: &crate::query::RenderedQueryOptions,
         global_state: Option<&mln_style::expression::GlobalStateMap>,
         proj_matrix: &mln_util::mat4::Mat4,
-    ) -> Result<crate::geometry::feature_index::QueryResults, mln_util::error::Error> {
+    ) -> Result<crate::geometry::feature_index::QueryResults, Error> {
         self.tile_source.query_rendered_features(geometry, transform_state, layers, options, global_state, proj_matrix)
     }
 
@@ -201,7 +207,7 @@ impl RenderSource for RenderGeoJSONSource {
         &self,
         options: &crate::query::SourceQueryOptions,
         global_state: Option<&mln_style::expression::GlobalStateMap>,
-    ) -> Result<Vec<mln_util::feature::Feature>, mln_util::error::Error> {
+    ) -> Result<Vec<mln_util::feature::Feature>, Error> {
         self.tile_source.query_source_features(options, global_state)
     }
 
@@ -238,7 +244,7 @@ impl RenderSource for RenderGeoJSONSource {
         self.tile_source.set_feature_state(source_layer_id, feature_id, state);
     }
 
-    fn set_feature_states(&mut self, states: Option<&std::sync::Arc<crate::bucket::LayerFeatureStates>>) {
+    fn set_feature_states(&mut self, states: Option<&Arc<crate::bucket::LayerFeatureStates>>) {
         self.tile_source.feature_state.set_states(states);
     }
 

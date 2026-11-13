@@ -132,7 +132,7 @@ impl Context {
         Rc::new_cyclic(|weak| Context {
             base: ContextBase::default(),
             backend,
-            weak_self: weak.clone(),
+            weak_self: Weak::clone(weak),
             global_uniform_buffers: RefCell::new(UniformBufferArray::new()),
             tile_vertex_buffer: RefCell::new(None),
             dummy_vertex_buffers: RefCell::default(),
@@ -169,7 +169,7 @@ impl Context {
         let device = self.backend.device();
         let mut table = self.index_table.borrow_mut();
         let table = table.get_or_insert_with(|| IndexTable::new(device));
-        if let Some((replaced, size)) = table.reserve(device, index) {
+        if let Some((replaced, size)) = table.reserve(device, self.backend.queue(), index) {
             if replaced > 0 {
                 self.count_buffer_released(replaced);
             }
@@ -200,7 +200,7 @@ impl Context {
     }
 
     pub(crate) fn weak(&self) -> Weak<Context> {
-        self.weak_self.clone()
+        Weak::clone(&self.weak_self)
     }
 
     pub(crate) fn get_backend(&self) -> &Rc<BackendImpl> {
@@ -322,7 +322,7 @@ impl Context {
         ubos: impl ExactSizeIterator<Item = &'a T>,
     ) -> usize {
         let device = self.backend.device();
-        let size = std::mem::size_of::<T>();
+        let size = size_of::<T>();
         let stride = size.next_multiple_of(UNIFORM_BUFFER_ALIGNMENT);
         let submission = self.submissions();
         let first = if slots.used.0 == submission { slots.used.1 } else { 0 };
@@ -447,7 +447,7 @@ impl Context {
             shader_location: source.attributes[0].index as u32,
         };
         // sizeof(gfx::Vertex<PositionOnlyLayoutAttributes>): one short2
-        let array_stride = std::mem::size_of::<[i16; 2]>() as u64;
+        let array_stride = size_of::<[i16; 2]>() as u64;
         let vertex_layout =
             VertexLayout { array_stride, step_mode: wgpu::VertexStepMode::Vertex, attributes: vec![vertex_attribute] };
         if self.globe_clip_mask_pipeline_hash.get().is_none() {
@@ -581,7 +581,7 @@ impl Context {
             shader_location: source.attributes[0].index as u32,
         };
         // sizeof(gfx::Vertex<PositionOnlyLayoutAttributes>): one short2
-        let array_stride = std::mem::size_of::<[i16; 2]>() as u64;
+        let array_stride = size_of::<[i16; 2]>() as u64;
         let vertex_layout =
             VertexLayout { array_stride, step_mode: wgpu::VertexStepMode::Vertex, attributes: vec![vertex_attribute] };
         if self.clip_mask_pipeline_hash.get().is_none() {

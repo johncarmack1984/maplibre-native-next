@@ -159,7 +159,7 @@ impl<'a> CaptureView<'a> {
         state: &'a TransformState,
         transform_params: &crate::paint_parameters::TransformParameters,
         translation: [f32; 2],
-        anchor: mln_style_types::TranslateAnchorType,
+        anchor: TranslateAnchorType,
         near_clipped: bool,
     ) -> Self {
         let unwrapped = tile_id.to_unwrapped();
@@ -217,7 +217,7 @@ pub(crate) fn capture_retained_features<'a>(
     state: &'a TransformState,
     transform_params: &crate::paint_parameters::TransformParameters,
     translation: [f32; 2],
-    anchor: mln_style_types::TranslateAnchorType,
+    anchor: TranslateAnchorType,
     mut visible: impl FnMut(usize) -> bool,
     mut bound: impl FnMut(&CaptureView<'_>, usize, usize) -> Option<NDCBound>,
 ) {
@@ -470,7 +470,7 @@ pub struct RenderLayerBase {
 
 impl RenderLayerBase {
     pub(crate) fn new(properties: Arc<dyn LayerProperties>) -> Self {
-        let base_impl = properties.base_impl.clone();
+        let base_impl = Arc::clone(&properties.base_impl);
         RenderLayerBase {
             evaluated_properties: properties,
             base_impl,
@@ -742,7 +742,7 @@ pub trait RenderLayer {
         _zoom: f32,
         _transform_state: &TransformState,
         _pixels_to_tile_units: f32,
-        _projector: &mln_map_types::TileProjector<'_>,
+        _projector: &TileProjector<'_>,
         _feature_state: &mln_style::expression::expression::FeatureState,
     ) -> bool {
         false
@@ -831,10 +831,10 @@ pub(crate) fn activate_layer_group(
         if activate {
             // The RenderTree has determined this layer should be included in
             // the renderable set for a frame
-            changes.push(ChangeRequest::AddLayerGroup(layer_group.clone()));
+            changes.push(ChangeRequest::AddLayerGroup(Rc::clone(layer_group)));
         } else {
             // The RenderTree is informing us we should not render anything
-            changes.push(ChangeRequest::RemoveLayerGroup(layer_group.clone()));
+            changes.push(ChangeRequest::RemoveLayerGroup(Rc::clone(layer_group)));
         }
     }
 }
@@ -847,6 +847,6 @@ pub(crate) fn change_layer_index(
     if let Some(group) = group
         && group.borrow().get_layer_index() != new_index
     {
-        changes.push(ChangeRequest::UpdateLayerGroupIndex(group.clone(), new_index));
+        changes.push(ChangeRequest::UpdateLayerGroupIndex(Rc::clone(group), new_index));
     }
 }

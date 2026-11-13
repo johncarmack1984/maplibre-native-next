@@ -45,7 +45,7 @@ pub(crate) struct BufferResource {
 /// Copies `data` into a new buffer of `size` bytes, or allocates an empty
 /// one when there is no data.
 pub(crate) fn new_metal_buffer(
-    device: &ProtocolObject<dyn objc2_metal::MTLDevice>,
+    device: &ProtocolObject<dyn MTLDevice>,
     data: Option<&[u8]>,
     size: usize,
     usage: MTLResourceOptions,
@@ -100,7 +100,7 @@ impl BufferResource {
                 id.set(value + 1);
                 value
             }),
-            backend: context.get_backend().clone(),
+            backend: Rc::clone(context.get_backend()),
             context: context.weak(),
             buffer: RefCell::new(buffer),
             raw: RefCell::new(raw),

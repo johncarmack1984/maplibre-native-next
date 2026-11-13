@@ -843,9 +843,8 @@ pub fn plan(device: &Device, ring: &ExportedRing) -> Result<ExportKind, Error> {
 pub fn sync_kinds(device: &Device) -> (SyncKinds, SyncKinds) {
     let (producer, consumer) = device.sync_kinds();
     let crossing = SyncKinds::of(&[SyncKind::CpuComplete, SyncKind::SyncFd, SyncKind::D3d12Fence]);
-    let keep = |kinds: SyncKinds| {
-        crossing.iter().filter(|kind| kinds.contains(*kind)).fold(SyncKinds::NONE, mln_gfx::SyncKinds::with)
-    };
+    let keep =
+        |kinds: SyncKinds| crossing.iter().filter(|kind| kinds.contains(*kind)).fold(SyncKinds::NONE, SyncKinds::with);
     (keep(producer), keep(consumer))
 }
 
@@ -904,7 +903,7 @@ impl Generation {
                 final_layout: vk::ImageLayout::GENERAL,
             }),
         };
-        let target = BorrowedTarget::new(backend.clone(), borrowed, producer)?;
+        let target = BorrowedTarget::new(Rc::clone(backend), borrowed, producer)?;
         Ok(Generation { target, images, depth_images, size })
     }
 }

@@ -54,7 +54,7 @@ impl DatabaseFileSourceThread {
     ) -> Self {
         let mut db = OfflineDatabase::new(cache_path);
         let accessed_flush_scheduled = Arc::new(AtomicBool::new(false));
-        let (scheduled, actor) = (accessed_flush_scheduled.clone(), self_ref.clone());
+        let (scheduled, actor) = (Arc::clone(&accessed_flush_scheduled), self_ref.clone());
         db.set_accessed_callback(Box::new(move || {
             if !scheduled.swap(true, Ordering::Relaxed) {
                 actor.invoke(DatabaseFileSourceThread::start_accessed_flush_timer);
@@ -161,10 +161,10 @@ impl DatabaseFileSourceThread {
     /// The `T` this thread keeps for an extension, created on first use. It
     /// lives on the database thread and is dropped with the database.
     pub fn extension<T: Default + 'static>(&self) -> Rc<T> {
-        let existing = self.extensions.borrow().iter().find_map(|extension| extension.clone().downcast::<T>().ok());
+        let existing = self.extensions.borrow().iter().find_map(|extension| Rc::clone(extension).downcast::<T>().ok());
         existing.unwrap_or_else(|| {
             let extension = Rc::new(T::default());
-            self.extensions.borrow_mut().push(extension.clone());
+            self.extensions.borrow_mut().push(Rc::<T>::clone(&extension));
             extension
         })
     }
@@ -272,8 +272,9 @@ impl FileSource for DatabaseFileSource {
             return;
         }
 
-        let wrapper: Option<Box<dyn FnMut() + Send>> =
-            callback.map(|callback| Box::new(scheduler::bind_once(&scheduler::get_current(), callback)) as _);
+        let wrapper: Option<Box<dyn FnMut() + Send>> = callback.map(|callback| -> Box<dyn FnMut() + Send> {
+            Box::new(scheduler::bind_once(&scheduler::get_current(), callback))
+        });
         let res = res.clone();
         let response = response.clone();
         self.thread.actor().invoke(move |t: &DatabaseFileSourceThread| t.forward(&res, &response, wrapper));

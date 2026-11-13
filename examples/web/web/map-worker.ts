@@ -25,14 +25,41 @@
 import type { WebMap } from './pkg/mln_web.js';
 import type { Bindings, Box, Camera, FromMap, Input, Loaded, Start, ToMap } from './protocol.ts';
 
-// Every URL this worker fetched, and how many times: the map's fetches look
-// the global `fetch` up at each call, and so do the preloads below.
+// Every URL this worker fetched, and how many times, and how many fetches
+// are still transferring: the map's fetches look the global `fetch` up at
+// each call, and so do the preloads below. A fetch is pending until it fails
+// or its body is read (mln_storage reads each with `arrayBuffer()`); a
+// preload, which the map may never claim, until a copy of its body is
+// (`settle`).
 const fetches = new Map<string, number>();
+let requests = 0;
+let pending = 0;
+const settle = new WeakMap<Response, () => void>();
 const globalFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
   const url = input instanceof Request ? input.url : String(input);
   fetches.set(url, (fetches.get(url) ?? 0) + 1);
-  return globalFetch(input, init);
+  requests++;
+  pending++;
+  let settled = false;
+  const done = () => {
+    if (settled) return;
+    settled = true;
+    pending--;
+  };
+  return globalFetch(input, init).then((response) => {
+    if (response.type === 'opaqueredirect') {
+      done(); // mln_storage reads no body from it
+      return response;
+    }
+    const read = response.arrayBuffer.bind(response);
+    response.arrayBuffer = () => read().finally(done);
+    settle.set(response, done);
+    return response;
+  }, (error: unknown) => {
+    done();
+    throw error;
+  });
 };
 
 const webgl2 = self.name === 'webgl2';
@@ -111,6 +138,7 @@ function preload(url: unknown): Promise<Response> | undefined {
   const response = fetch(url);
   // Unclaimed, a failure is quiet; claimed, the map fetches again.
   response.catch(() => {});
+  response.then((r) => r.clone().arrayBuffer().finally(() => settle.get(r)?.())).catch(() => {});
   const expiry = setTimeout(() => preloads.delete(url), 60_000);
   preloads.set(url, { response, expiry });
   return response;
@@ -195,7 +223,7 @@ async function run(
   { module, canvas, ports, width, height, ratio, style, fallbackFontFaces, camera, localIdeographFontFamily, panic }: Start,
 ): Promise<Handle> {
   const { default: init, WebMap, set_preloads, panic_for_check, mlnWebStopPump } = await bindings;
-  await init({ module_or_path: module });
+  const exports = await init({ module_or_path: module }) as { memory?: WebAssembly.Memory };
   stopPump = mlnWebStopPump;
   set_preloads(takePreload);
 
@@ -238,6 +266,8 @@ async function run(
   let reported = 0;
   let attribution = '';
   let styleName = '';
+  // Whether the page shows its debug overlay.
+  let debug = false;
   const report = (force: boolean) => {
     const now = performance.now();
     if (!force && now - reported < 250) return;
@@ -258,14 +288,36 @@ async function run(
       styleName = name;
       post({ type: 'styleName', name });
     }
+    if (debug) {
+      const [drawCalls = 0, textures = 0, buffers = 0] = map.render_stats();
+      post({
+        type: 'stats',
+        stats: {
+          drawCalls,
+          memory: exports.memory?.buffer.byteLength ?? 0,
+          gpuMemory: textures + buffers,
+          pending,
+          requests,
+          loadedMs: loaded?.loadedMs ?? null,
+        },
+      });
+    }
   };
-  function frame() {
-    guard(drawFrame);
+  function frame(time: number) {
+    guard(() => drawFrame(time));
     if (!stopped) requestAnimationFrame(frame);
   }
   let shownCamera = '';
-  function drawFrame() {
-    map.frame(8, performance.now());
+  // When the last frame that drew began, for the debug overlay.
+  let lastDrawn: number | null = null;
+  function drawFrame(time: number) {
+    const drew = map.frame(8, performance.now());
+    if (drew) {
+      if (debug && lastDrawn !== null) {
+        post({ type: 'frame', sample: { interval: time - lastDrawn, phases: Array.from(map.frame_timings()) } });
+      }
+      lastDrawn = time;
+    }
     const [lat = 0, lon = 0, zoom = 0, bearing = 0, pitch = 0] = map.camera();
     const next = [lat, lon, zoom, bearing, pitch].join();
     const camera: Camera = [lat, lon, zoom, bearing, pitch];
@@ -352,6 +404,10 @@ async function run(
         }
         break;
       }
+      case 'debug':
+        debug = data.on;
+        report(true);
+        break;
       case 'preload':
       case 'start':
       case 'fetches':

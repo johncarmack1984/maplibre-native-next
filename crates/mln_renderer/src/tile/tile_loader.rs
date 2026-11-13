@@ -16,7 +16,7 @@ use mln_util::tileset::Tileset;
 
 use crate::tile::geometry_tile::GeometryTileInner;
 use crate::tile::geometry_tile_worker::SharedTileData;
-use crate::tile::tile::{TileNecessity, TileOperation, TileUpdateParameters};
+use crate::tile::tile::{TileLoadOrder, TileNecessity, TileOperation, TileUpdateParameters};
 use crate::tile_parameters::TileParameters;
 
 fn get_cant_load_tile_error() -> Error {
@@ -86,10 +86,12 @@ impl LoaderTile for GeometryTileInner {
     fn set_data(&self, data: Option<Data>, encoding: VectorTileEncoding) {
         if !self.is_obsolete() {
             self.missing.set(false);
-            let data: Option<SharedTileData> = data.map(|data| match encoding {
-                VectorTileEncoding::Mvt => Arc::new(mln_tile::VectorMVTTileData::new(data)) as SharedTileData,
-                VectorTileEncoding::Mlt { fast_pfor_enabled } => {
-                    Arc::new(mln_tile::VectorMLTTileData::new(data, fast_pfor_enabled)) as SharedTileData
+            let data = data.map(|data| -> SharedTileData {
+                match encoding {
+                    VectorTileEncoding::Mvt => Arc::new(mln_tile::VectorMVTTileData::new(data)),
+                    VectorTileEncoding::Mlt { fast_pfor_enabled } => {
+                        Arc::new(mln_tile::VectorMLTTileData::new(data, fast_pfor_enabled))
+                    }
                 }
             });
             GeometryTileInner::set_data(self, data);
@@ -210,6 +212,12 @@ impl TileLoader {
         }
     }
 
+    /// Sets when the tile's network request starts among those waiting. The
+    /// requests share the resource's order, so one that waits now moves.
+    pub(crate) fn set_load_order(&self, order: TileLoadOrder) {
+        self.state.borrow().resource.order.set(order.value());
+    }
+
     pub(crate) fn set_update_parameters(&self, params: &TileUpdateParameters) {
         let reload = {
             let mut state = self.state.borrow_mut();
@@ -315,7 +323,7 @@ fn load_from_cache(state_rc: &Rc<RefCell<State>>) {
                 state.resource.prior_modified = res.modified;
                 state.resource.prior_expires = res.expires;
                 state.resource.prior_etag = res.etag.clone();
-                state.resource.prior_data = res.data.clone();
+                state.resource.prior_data = res.data;
             } else {
                 loaded_data(&state_rc, &res, LoadingMethod::CacheOnly);
             }

@@ -157,7 +157,7 @@ impl Context {
         Rc::new_cyclic(|weak| Context {
             base: ContextBase::default(),
             backend,
-            weak_self: weak.clone(),
+            weak_self: Weak::clone(weak),
             global_uniform_buffers: RefCell::new(UniformBufferArray::new()),
             tile_vertex_buffer: RefCell::new(None),
             tile_index_buffer: RefCell::new(None),
@@ -179,7 +179,7 @@ impl Context {
     }
 
     pub(crate) fn weak(&self) -> Weak<Context> {
-        self.weak_self.clone()
+        Weak::clone(&self.weak_self)
     }
 
     pub(crate) fn get_backend(&self) -> &Rc<BackendImpl> {
@@ -261,7 +261,7 @@ impl Context {
             }
         }
 
-        Some(ShaderProgram::new(name, self.backend.clone(), vertex_function, fragment_function))
+        Some(ShaderProgram::new(name, Rc::clone(&self.backend), vertex_function, fragment_function))
     }
 
     /// Creates a texture, of the concrete type.
@@ -394,7 +394,7 @@ impl Context {
     ) -> Option<MTLRenderPipelineStatePtr> {
         let attribute = shader_source(BuiltIn::ClippingMaskProgram)?.attributes[0];
         // sizeof(gfx::Vertex<PositionOnlyLayoutAttributes>::a1): one short2
-        let vertex_size = std::mem::size_of::<[i16; 2]>();
+        let vertex_size = size_of::<[i16; 2]>();
         // A vertex descriptor tells Metal what's in the vertex buffer.
         let vertex_descriptor = MTLVertexDescriptor::vertexDescriptor();
         // SAFETY: the attribute and buffer indexes are below Metal's 31.

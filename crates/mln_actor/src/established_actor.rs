@@ -3,7 +3,6 @@
 // that will own it, opens the mailbox there, and on drop closes the mailbox
 // before the object goes away.
 
-use std::any::Any;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -48,8 +47,8 @@ impl<O: 'static> EstablishedActor<O> {
         make: impl FnOnce(ActorRef<O>) -> O,
     ) -> Self {
         let object = Rc::new(make(parent.self_ref()));
-        parent.mailbox.open(scheduler, object.clone() as Rc<dyn Any>);
-        EstablishedActor { mailbox: parent.mailbox.clone(), object: Some(object) }
+        parent.mailbox.open(scheduler, Rc::<O>::clone(&object));
+        EstablishedActor { mailbox: Arc::clone(&parent.mailbox), object: Some(object) }
     }
 }
 
@@ -103,7 +102,7 @@ mod tests {
         parent.self_ref().invoke(|_: &TestActor| TestActor::stop());
 
         std::thread::scope(|s| {
-            let captured = destroyed.clone();
+            let captured = Arc::clone(&destroyed);
             let parent = &parent;
             let thread = s.spawn(move || {
                 let run_loop = RunLoop::new();

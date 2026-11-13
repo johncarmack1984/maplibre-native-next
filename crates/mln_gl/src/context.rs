@@ -167,7 +167,7 @@ impl Context {
         Rc::new_cyclic(|weak| Context {
             base: ContextBase::default(),
             backend,
-            weak_self: weak.clone(),
+            weak_self: Weak::clone(weak),
             state: State::default(),
             uniform_buffer_offset_alignment: alignment.max(1) as usize,
             half_float_renderable,
@@ -189,7 +189,7 @@ impl Context {
     }
 
     pub(crate) fn weak(&self) -> Weak<Context> {
-        self.weak_self.clone()
+        Weak::clone(&self.weak_self)
     }
 
     #[cfg(all(unix, not(target_vendor = "apple")))]
@@ -644,7 +644,7 @@ impl Context {
             self.state.bind_vertex_array(gl, Some(vertex_array));
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(vertex_buffer));
             gl.enable_vertex_attrib_array(0);
-            gl.vertex_attrib_pointer_f32(0, 2, glow::SHORT, false, std::mem::size_of::<[i16; 2]>() as i32, 0);
+            gl.vertex_attrib_pointer_f32(0, 2, glow::SHORT, false, size_of::<[i16; 2]>() as i32, 0);
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(index_buffer));
             self.state.bind_vertex_array(gl, None);
             Some(ClipMesh { vertex_array, vertex_buffer, index_buffer, index_count: indices.len() as i32 })
@@ -753,7 +753,7 @@ impl Context {
         };
 
         // The masks' projection blocks, each at an offset GL can bind.
-        let block_size = std::mem::size_of::<ProjectionUBO>();
+        let block_size = size_of::<ProjectionUBO>();
         let stride = block_size.next_multiple_of(self.uniform_buffer_offset_alignment);
         let mut blocks = vec![0u8; stride * masks.len()];
         for (i, mask) in masks.iter().enumerate() {

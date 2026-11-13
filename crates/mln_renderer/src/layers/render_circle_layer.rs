@@ -313,10 +313,10 @@ fn read_circle_attributes(
 // query
 fn project_point(
     p: mln_tile_id::geometry_tile_data::GeometryCoordinate,
-    projector: &mln_map_types::TileProjector<'_>,
+    projector: &TileProjector<'_>,
     size: mln_util::size::Size,
 ) -> mln_tile_id::geometry_tile_data::GeometryCoordinate {
-    let pos = projector.project(&geometry::Point::new(f64::from(p.x), f64::from(p.y)), 0.0).point;
+    let pos = projector.project(&Point::new(f64::from(p.x), f64::from(p.y)), 0.0).point;
     // `(float(pos.x) + 1) * size.width * 0.5`: float, then double.
     mln_tile_id::geometry_tile_data::GeometryCoordinate::new(
         (f64::from((pos.x as f32 + 1.0) * size.width as f32) * 0.5) as i16,
@@ -326,7 +326,7 @@ fn project_point(
 
 fn project_query_geometry(
     query_geometry: &mln_tile_id::geometry_tile_data::GeometryCoordinates,
-    projector: &mln_map_types::TileProjector<'_>,
+    projector: &TileProjector<'_>,
     size: mln_util::size::Size,
 ) -> mln_tile_id::geometry_tile_data::GeometryCoordinates {
     query_geometry.iter().map(|p| project_point(*p, projector, size)).collect()
@@ -387,7 +387,7 @@ impl RenderLayer for RenderCircleLayer {
         self.base.evaluated_properties = Arc::new(properties);
 
         if let Some(layer_tweaker) = &self.base.layer_tweaker {
-            layer_tweaker.borrow_mut().update_properties(self.base.evaluated_properties.clone());
+            layer_tweaker.borrow_mut().update_properties(Arc::clone(&self.base.evaluated_properties));
         }
     }
 
@@ -407,7 +407,7 @@ impl RenderLayer for RenderCircleLayer {
         zoom: f32,
         transform_state: &TransformState,
         pixels_to_tile_units: f32,
-        projector: &mln_map_types::TileProjector<'_>,
+        projector: &TileProjector<'_>,
         feature_state: &mln_style::expression::expression::FeatureState,
     ) -> bool {
         use mln_style_types::{AlignmentType, CirclePitchScaleType};
@@ -449,7 +449,7 @@ impl RenderLayer for RenderCircleLayer {
         // The shader hides a circle whose center the horizon covers where it
         // draws it: translated, and through the projection as blended. The
         // query finds none there either.
-        let drawn_translation = crate::render_tile::RenderTile::tile_unit_translation(
+        let drawn_translation = RenderTile::tile_unit_translation(
             projector.get_tile_id(),
             *evaluated.get::<CircleTranslate>(),
             *evaluated.get::<CircleTranslateAnchor>(),
@@ -461,7 +461,7 @@ impl RenderLayer for RenderCircleLayer {
                 if transform_state.is_globe_rendering()
                     && projector
                         .project_as_drawn(
-                            &geometry::Point::new(
+                            &Point::new(
                                 f64::from(f32::from(point.x) + drawn_translation[0]),
                                 f64::from(f32::from(point.y) + drawn_translation[1]),
                             ),
@@ -474,7 +474,7 @@ impl RenderLayer for RenderCircleLayer {
                 let transformed_point =
                     if align_with_map { *point } else { project_point(*point, projector, transform_state.get_size()) };
 
-                let projected = projector.project(&geometry::Point::new(f64::from(point.x), f64::from(point.y)), 0.0);
+                let projected = projector.project(&Point::new(f64::from(point.x), f64::from(point.y)), 0.0);
                 let mut adjusted_size = transformed_size;
                 let w = projected.signed_distance_from_camera;
                 let pitch_scale = *evaluated.get::<CirclePitchScale>();
@@ -532,11 +532,11 @@ impl RenderLayer for RenderCircleLayer {
         if self.base.layer_tweaker.is_none() {
             let tweaker: LayerTweakerPtr = Rc::new(RefCell::new(CircleLayerTweaker::new(
                 self.get_id().to_owned(),
-                self.base.evaluated_properties.clone(),
+                Arc::clone(&self.base.evaluated_properties),
             )));
-            self.base.layer_tweaker = Some(tweaker.clone());
+            self.base.layer_tweaker = Some(Rc::clone(&tweaker));
             // layerGroup->addLayerTweaker(layerTweaker)
-            changes.push(ChangeRequest::AddLayerTweaker(layer_group.clone(), Rc::downgrade(&tweaker)));
+            changes.push(ChangeRequest::AddLayerTweaker(Rc::clone(&layer_group), Rc::downgrade(&tweaker)));
         }
 
         if self.circle_shader_group.is_none() {
@@ -562,7 +562,7 @@ impl RenderLayer for RenderCircleLayer {
             });
         }
 
-        let evaluated_properties = self.base.evaluated_properties.clone();
+        let evaluated_properties = Arc::clone(&self.base.evaluated_properties);
         let evaluated = get_evaluated::<CircleLayerProperties>(&evaluated_properties);
         let layer_tweaker = self.base.layer_tweaker.clone();
         let mut properties_as_uniforms: StringIDSetsPair = Default::default();
@@ -570,7 +570,7 @@ impl RenderLayer for RenderCircleLayer {
         for tile in render_tiles.iter() {
             let tile_id = *tile.get_overscaled_tile_id();
 
-            let base_impl = self.base.base_impl.clone();
+            let base_impl = Arc::clone(&self.base.base_impl);
             let render_data = super::render_data_for_pass(tile, &*base_impl, render_pass);
             let Some(render_data) = render_data.filter(|r| r.bucket.has_data()) else {
                 self.remove_tile(render_pass, &tile_id);
@@ -668,7 +668,7 @@ impl RenderLayer for RenderCircleLayer {
                     Some(bucket_vertices(geometry, bucket, &bucket.vertices)),
                     0, // offsetof(CircleLayoutVertex, a1)
                     0,
-                    std::mem::size_of::<crate::buckets::circle_bucket::CircleLayoutVertex>() as u32,
+                    size_of::<CircleLayoutVertex>() as u32,
                     AttributeDataType::Short2,
                 );
             }

@@ -109,7 +109,7 @@ impl CustomLayerHost for Host {
 /// The header's variants of the backends' commands. A backend without one,
 /// such as WebGPU outside a browser, gives the host nothing to draw with.
 mod native {
-    #[cfg(not(any(target_vendor = "apple", target_family = "wasm")))]
+    #[cfg(backend_vulkan)]
     use core::ffi::c_void;
 
     use super::{Any, mln_custom_layer_encoder_data, mln_custom_layer_pass_data, mln_render_backend};
@@ -118,7 +118,7 @@ mod native {
     pub(super) fn encoder(encoder: &mut dyn Any) -> Option<(mln_render_backend, mln_custom_layer_encoder_data)> {
         // SAFETY: zeros are a valid union of pointers and integers.
         let mut data: mln_custom_layer_encoder_data = unsafe { core::mem::zeroed() };
-        #[cfg(not(any(target_vendor = "apple", target_family = "wasm")))]
+        #[cfg(backend_vulkan)]
         if let Some(encoder) = encoder.downcast_ref::<mln_vulkan::CustomLayerEncoder>() {
             use mln_vulkan::ash::vk::Handle as _;
             data.vulkan = crate::generated::types::mln_vulkan_custom_layer_encoder {
@@ -130,11 +130,11 @@ mod native {
         #[cfg(target_vendor = "apple")]
         if let Some(encoder) = encoder.downcast_ref::<mln_mtl::CustomLayerEncoder>() {
             data.metal = crate::generated::types::mln_metal_custom_layer_encoder {
-                command_buffer: mln_mtl::objc2::rc::Retained::as_ptr(&encoder.command_buffer).cast_mut().cast(),
+                command_buffer: objc2::rc::Retained::as_ptr(&encoder.command_buffer).cast_mut().cast(),
             };
             return Some((crate::generated::types::MLN_RENDER_BACKEND_METAL, data));
         }
-        #[cfg(any(all(unix, not(target_vendor = "apple")), all(target_family = "wasm", feature = "gl")))]
+        #[cfg(any(backend_gl, all(target_family = "wasm", feature = "gl")))]
         if encoder.is::<mln_gl::CustomLayerEncoder>() {
             return Some((crate::generated::types::MLN_RENDER_BACKEND_OPEN_GL, data));
         }
@@ -145,7 +145,7 @@ mod native {
     pub(super) fn pass(pass: &mut dyn Any) -> Option<(mln_render_backend, mln_custom_layer_pass_data)> {
         // SAFETY: zeros are a valid union of pointers and integers.
         let mut data: mln_custom_layer_pass_data = unsafe { core::mem::zeroed() };
-        #[cfg(not(any(target_vendor = "apple", target_family = "wasm")))]
+        #[cfg(backend_vulkan)]
         if let Some(pass) = pass.downcast_ref::<mln_vulkan::CustomLayerPass>() {
             use mln_vulkan::ash::vk::Handle as _;
             data.vulkan = crate::generated::types::mln_vulkan_custom_layer_pass {
@@ -174,7 +174,7 @@ mod native {
             };
             return Some((crate::generated::types::MLN_RENDER_BACKEND_METAL, data));
         }
-        #[cfg(any(all(unix, not(target_vendor = "apple")), all(target_family = "wasm", feature = "gl")))]
+        #[cfg(any(backend_gl, all(target_family = "wasm", feature = "gl")))]
         if let Some(pass) = pass.downcast_ref::<mln_gl::CustomLayerPass>() {
             data.open_gl = crate::generated::types::mln_open_gl_custom_layer_pass {
                 // A browser session draws into its canvas: the default
@@ -191,7 +191,7 @@ mod native {
 
     /// The header's descriptor of a Vulkan device, as
     /// `mln_gpu_device_get_vulkan_context()` reports it.
-    #[cfg(not(any(target_vendor = "apple", target_family = "wasm")))]
+    #[cfg(backend_vulkan)]
     fn vulkan_context(device: &mln_vulkan::RawDevice) -> crate::generated::types::mln_vulkan_context_descriptor {
         use mln_vulkan::ash::vk::Handle as _;
         crate::generated::types::mln_vulkan_context_descriptor {
@@ -247,7 +247,7 @@ pub(crate) unsafe extern "C" fn mln_map_add_custom_layer(
             drew: AtomicBool::new(false),
         });
         host.registration.accept();
-        let layer_host: Arc<dyn CustomLayerHost> = host.clone();
+        let layer_host: Arc<dyn CustomLayerHost> = Arc::<Host>::clone(&host);
         // SAFETY: the caller's contract.
         let sent = unsafe { map::command(map, completion, |map| map.add_custom_layer(id, layer_host, before)) };
         if sent.is_err() {

@@ -704,7 +704,7 @@ impl GeometryTileWorker {
                         available_images: &self.available_images,
                         filter_groups: &mut filter_groups,
                     },
-                    SourceLayer::new(data.clone(), leader_impl.source_layer.clone()),
+                    SourceLayer::new(Arc::clone(data), leader_impl.source_layer.clone()),
                     group,
                 )?;
                 let Some(mut layout) = layout else {
@@ -783,9 +783,10 @@ impl GeometryTileWorker {
                 let bucket: BucketPtr = Arc::from(bucket);
                 for layer in group {
                     // `emplace` keeps an existing entry.
-                    self.render_data
-                        .entry(layer.base_impl.id.clone())
-                        .or_insert_with(|| LayerRenderData { bucket: bucket.clone(), layer_properties: layer.clone() });
+                    self.render_data.entry(layer.base_impl.id.clone()).or_insert_with(|| LayerRenderData {
+                        bucket: Arc::clone(&bucket),
+                        layer_properties: Arc::clone(layer),
+                    });
                 }
             }
         }
@@ -875,7 +876,7 @@ impl GeometryTileWorker {
             Arc::from(self.feature_index.take().expect("feature index")),
             glyph_atlas,
             image_atlas,
-            self.dynamic_texture_atlas.clone().map(|atlas| atlas as Arc<dyn TextureAtlas>),
+            self.dynamic_texture_atlas.clone().map(|atlas| -> Arc<dyn TextureAtlas> { atlas }),
         );
         self.parent.send(TileMessage::Layout { result: layout_result, correlation_id: self.correlation_id });
         Ok(())

@@ -373,18 +373,18 @@ impl VectorMVTTileData {
 impl GeometryTileData for VectorMVTTileData {
     /// Shares the data, not the layers found in it.
     fn clone_data(&self) -> Box<dyn GeometryTileData> {
-        Box::new(VectorMVTTileData::new(self.data.clone()))
+        Box::new(VectorMVTTileData::new(Arc::clone(&self.data)))
     }
 
     fn get_layer(&self, name: &str) -> Result<Option<Box<dyn GeometryTileLayer + '_>>, MlnError> {
         match self.try_get_layer(name) {
-            Ok(layer) => Ok(layer.map(|layer| Box::new(layer) as Box<dyn GeometryTileLayer + '_>)),
+            Ok(layer) => Ok(layer.map(|layer| -> Box<dyn GeometryTileLayer + '_> { Box::new(layer) })),
             Err(e) => Err(MlnError::native(e.to_string())),
         }
     }
 
     fn encoded(&self) -> Option<EncodedTileData> {
-        Some(EncodedTileData::Mvt(self.data.clone()))
+        Some(EncodedTileData::Mvt(Arc::clone(&self.data)))
     }
 }
 

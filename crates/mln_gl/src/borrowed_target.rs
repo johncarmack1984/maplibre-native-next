@@ -289,7 +289,7 @@ impl FrameTarget for BorrowedTarget {
         if image.is_none() {
             let context = self.backend.gl_context()?;
             let textures = self.textures.borrow();
-            match Resource::new(&context, &textures, self.selected.clone()) {
+            match Resource::new(&context, &textures, Rc::clone(&self.selected)) {
                 Ok(resource) => *image = Some(Rc::new(DrawTarget::new(textures.size, Rc::new(resource)))),
                 Err(error) => {
                     mln_util::logging::Log::error(mln_util::logging::Event::GraphicsBackend, error.message);
@@ -297,7 +297,7 @@ impl FrameTarget for BorrowedTarget {
                 }
             }
         }
-        image.clone().map(|image| image as Rc<dyn frame::DrawTarget>)
+        image.clone().map(|image| -> Rc<dyn frame::DrawTarget> { image })
     }
 
     fn end_frame(&self, _encoder: &dyn CommandEncoder) -> Handoff {
@@ -395,7 +395,7 @@ impl HostSurfaceTarget {
         let (gl, platform, swap) = device.create_surface_context(surface.0)?;
         let backend = Rc::new(RendererBackend::from_parts(gl, platform));
         let target = HostSurfaceTarget {
-            backend: backend.clone(),
+            backend: Rc::clone(&backend),
             swap,
             size: Rc::new(Cell::new(size)),
             image: RefCell::new(None),
@@ -418,7 +418,7 @@ impl FrameTarget for HostSurfaceTarget {
         let mut image = self.image.borrow_mut();
         if image.is_none() {
             let context = self.backend.gl_context()?;
-            let resource = SurfaceResource { context: Rc::downgrade(&context), size: self.size.clone() };
+            let resource = SurfaceResource { context: Rc::downgrade(&context), size: Rc::clone(&self.size) };
             *image = Some(Rc::new(DrawTarget::new(size, Rc::new(resource))));
         }
         let image = image.clone()?;
@@ -430,8 +430,7 @@ impl FrameTarget for HostSurfaceTarget {
         if self.image.borrow().is_none() {
             return Handoff::Dropped;
         }
-        self.swap.swap();
-        Handoff::Presented
+        if self.swap.swap() { Handoff::Presented } else { Handoff::Dropped }
     }
 }
 

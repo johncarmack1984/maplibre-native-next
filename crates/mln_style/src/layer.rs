@@ -234,11 +234,13 @@ pub trait Layer: Any + Send + Sync {
 impl dyn Layer {
     /// `layer->as<FooLayer>()`-style checked downcast.
     pub fn downcast_ref<T: Layer>(&self) -> Option<&T> {
-        (self as &dyn Any).downcast_ref()
+        let any: &dyn Any = self;
+        any.downcast_ref()
     }
 
     pub fn downcast_mut<T: Layer>(&mut self) -> Option<&mut T> {
-        (self as &mut dyn Any).downcast_mut()
+        let any: &mut dyn Any = self;
+        any.downcast_mut()
     }
 }
 
@@ -394,7 +396,7 @@ fn set_visibility_value(layer: &mut (impl Layer + ?Sized), value: &Convertible<'
         // available here. The style reevaluates the expression when the layer
         // is added or when this change reaches its observer.
         let expression: Arc<dyn Expression> = Arc::from(parsed);
-        layer.mutate_base_impl(&mut |impl_| impl_.visibility_expression = Some(expression.clone()));
+        layer.mutate_base_impl(&mut |impl_| impl_.visibility_expression = Some(Arc::clone(&expression)));
         return None;
     }
 
