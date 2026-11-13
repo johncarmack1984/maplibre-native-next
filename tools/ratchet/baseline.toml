@@ -157,8 +157,6 @@
 "vendor/rapidjson/src/internal/dtoa.rs" = 1
 "vendor/rapidjson/src/writer.rs" = 3
 "vendor/supercluster/src/lib.rs" = 1
-"vendor/wagyu/src/build_result.rs" = 1
-"vendor/wagyu/src/topology_correction.rs" = 1
 
 [todo-port]
 "crates/mln_actor/src/established_actor.rs" = 1
@@ -271,4 +269,3 @@
 "vendor/geojson/tests/geojson.rs" = 1
 "vendor/geometry/src/lib.rs" = 1
 "vendor/pmtiles/src/lib.rs" = 1
-"vendor/wagyu/src/wagyu.rs" = 1

@@ -52,4 +52,3 @@ pub use polylabel;
 pub use rapidjson;
 pub use shelf_pack;
 pub use supercluster;
-pub use wagyu;
