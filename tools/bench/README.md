@@ -117,7 +117,7 @@ machine, trust `minstr` and `allocs` over the times. To see how much your
 machine's numbers vary, compare a commit with itself, which should give no
 verdicts.
 
-`--fail-on <metric>` makes the comparison fail, after its report, when that metric gets a worse verdict in any case. CI's `bench` workflow compares each pull request with its base this way on lavapipe, where the times are noisy but the allocations count the same as on any machine: it fails on a worse `allocs` or `peak_heap_mib`, and the report is in the job's summary.
+`--fail-on <metric>` makes the comparison fail, after its report, when that metric gets a worse verdict in any case. CI's `bench` workflow, run by hand on a branch, compares it with a base (main by default) this way on lavapipe, where the times are noisy but the allocations count the same as on any machine: it fails on a worse `allocs` or `peak_heap_mib`, and the report is in the job's summary. It takes about half an hour, so pull requests don't run it.
 
 ## Nightly
 
