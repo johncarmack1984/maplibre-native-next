@@ -1261,11 +1261,13 @@ fn globe_far_side_falls_back_to_the_base_level(size: Size, min_zoom: u8, zoom: f
 }
 
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_far_side_falls_back_to_zoom_zero() {
     globe_far_side_falls_back_to_the_base_level(Size::new(1920, 1080), 0, 5.0);
 }
 
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_far_side_falls_back_to_zoom_one() {
     globe_far_side_falls_back_to_the_base_level(Size::new(512, 512), 1, 3.0);
 }
@@ -1273,6 +1275,7 @@ fn globe_far_side_falls_back_to_zoom_one() {
 /// The tiles past the antimeridian have another wrap than the zoom-0 tile,
 /// which stands in for them all the same, and is drawn once.
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_fallback_crosses_the_antimeridian() {
     let mut turning = TurningSource::new("vertical-perspective", Size::new(512, 512), 0);
     turning.load(90.0, 2.0);
@@ -1298,6 +1301,7 @@ fn globe_fallback_crosses_the_antimeridian() {
 /// wrap, so the tiles past the antimeridian don't take the zoom-0 tile of
 /// the other wrap.
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_fallback_keeps_to_its_wrap_while_blending_into_mercator() {
     let mut turning = TurningSource::new("vertical-perspective", Size::new(512, 512), 0);
     turning.test.transform.set_projection_definition(&ProjectionDefinition::between_names(
@@ -1318,6 +1322,7 @@ fn globe_fallback_keeps_to_its_wrap_while_blending_into_mercator() {
 /// The first level costs a source that starts at zoom 1 the tiles of it that
 /// the view doesn't show, and a Mercator map nothing.
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_base_level_requests() {
     let mut globe = TurningSource::new("vertical-perspective", Size::new(512, 512), 1);
     globe.load(60.0, 3.0);
@@ -1330,6 +1335,7 @@ fn globe_base_level_requests() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_base_level_is_released() {
     let mut turning = TurningSource::new("vertical-perspective", Size::new(512, 512), 1);
     turning.load(60.0, 3.0);
@@ -1351,6 +1357,7 @@ fn globe_base_level_is_released() {
 /// The globe is larger away from the equator at the same zoom, so the first
 /// level is let go of at a lower zoom there.
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_base_level_is_released_sooner_away_from_the_equator() {
     let mut turning = TurningSource::new("vertical-perspective", Size::new(512, 512), 1);
     turning.latitude = 60.0;
@@ -1366,6 +1373,7 @@ fn globe_base_level_is_released_sooner_away_from_the_equator() {
 /// A first level of sixteen tiles is not kept, nor one that the search for a
 /// loaded parent would not reach.
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn globe_base_level_is_not_kept_where_it_is_large_or_out_of_reach() {
     let mut large = TurningSource::new("vertical-perspective", Size::new(512, 512), 2);
     large.load(60.0, 3.0);

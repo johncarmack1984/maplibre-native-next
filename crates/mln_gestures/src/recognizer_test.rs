@@ -1165,6 +1165,7 @@ fn drag_drift(rig: &mut Rig, path: &[ScreenCoordinate]) -> f64 {
 // through the drag, to keep the planet's size; the location is held at that
 // zoom.
 #[test]
+#[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
 fn a_drag_on_the_globe_holds_the_location_it_grabbed() {
     let paths = [
         ("across", line(p(250.0, 300.0), p(550.0, 300.0), 4.0)),
