@@ -15,11 +15,13 @@ use mln_map::{
     AnimationOptions, CameraOptions, CameraUpdate, CameraUpdateMode, GesturePhase, Map, MapEvent, MapOptions,
     UpdateReader,
 };
-use mln_renderer::Renderer;
 use mln_renderer::text::font_face_engine;
+use mln_renderer::tile::worker_codec::SerializingTransport;
+use mln_renderer::{RenderTimings, Renderer};
 use mln_util::LatLng;
 use mln_util::geo::ScreenCoordinate;
 use mln_util::size::Size;
+use mln_util::time::Instant;
 use mln_web_host::shaper::{self, ShaperModuleEngine};
 #[cfg(feature = "tile-workers")]
 use mln_web_host::tile_workers;
@@ -97,7 +99,20 @@ pub struct WebMap {
     received: Rc<Cell<u32>>,
     /// The page's pointer, wheel and key input, turned into camera moves.
     gestures: GestureRecognizer,
+    /// The transport of the tiles' workers, which times their replies; none
+    /// when the map has no tile workers.
+    transport: Option<Rc<SerializingTransport>>,
+    /// Milliseconds the `RunLoop` ran between frames, and of those, received
+    /// tile replies, since the last frame took them.
+    between_frames_ms: Rc<Cell<[f64; 2]>>,
+    /// The work of the frames since the last one that drew, by phase.
+    pending: [f64; PHASES],
+    /// What the last frame that drew spent on each phase (`frame_timings`).
+    phases: [f64; PHASES],
 }
+
+/// How many phases `WebMap::frame_timings` reports.
+const PHASES: usize = 8;
 
 #[wasm_bindgen]
 impl WebMap {
@@ -171,7 +186,7 @@ impl WebMap {
         };
         let device = mln_webgpu::Device::from_wgpu(Some(instance), device, queue, Some(format));
         let webgpu_backend = Rc::new(mln_webgpu::RendererBackend::new(&device));
-        let target = Target::new(webgpu_backend.clone(), surface, physical(size, pixel_ratio), options)
+        let target = Target::new(Rc::clone(&webgpu_backend), surface, physical(size, pixel_ratio), options)
             .map_err(|e| js_error(format!("WebGPU surface: {e}")))?;
         WebMap::build(
             webgpu_backend,
@@ -306,15 +321,59 @@ impl WebMap {
     /// cooperative scheduler's tasks (sprites, glyphs, raster tiles) for up
     /// to `budget_ms` and delivers their results. Returns whether it drew.
     pub fn frame(&mut self, budget_ms: f64, now: f64) -> bool {
+        let [between, between_tiles] = self.between_frames_ms.replace([0.0; 2]);
+        let ms = |duration: Duration| duration.as_secs_f64() * 1000.0;
+        let start = Instant::now();
         // The map samples its animations at this frame's time.
-        self.map.set_frame_time(Some(mln_util::time::Instant::now()));
+        self.map.set_frame_time(Some(start));
         self.gestures.frame(&mut self.map, now);
         self.run_loop.run_once();
         self.handle_map_events();
+        let update_tiles = ms(take_receive_time(self.transport.as_ref()));
+        let update = ms(start.elapsed()) - update_tiles;
         let drew = self.frontend.render();
+        let tasks_start = Instant::now();
         self.run_tasks(budget_ms);
         self.handle_map_events();
+        let tasks_tiles = ms(take_receive_time(self.transport.as_ref()));
+        let tasks = ms(tasks_start.elapsed()) - tasks_tiles;
+
+        let render = if drew { self.frontend.renderer.render_timings() } else { RenderTimings::default() };
+        let frame = [
+            update + between - between_tiles,
+            between_tiles + update_tiles + tasks_tiles,
+            ms(render.sources),
+            ms(render.symbols),
+            ms(render.layers),
+            ms(render.upload),
+            ms(render.draw),
+            tasks,
+        ];
+        for (pending, ms) in self.pending.iter_mut().zip(frame) {
+            *pending += ms;
+        }
+        if drew {
+            self.phases = std::mem::take(&mut self.pending);
+        }
         drew
+    }
+
+    /// The milliseconds of work on this thread since the frame that drew
+    /// before the last one that drew, up to its end, by phase: the gestures
+    /// and the `RunLoop`, but for tile replies; receiving the tile workers'
+    /// replies; then the renderer's `RenderTimings` (sources, symbols,
+    /// layers, upload, draw); and the cooperative scheduler's tasks.
+    pub fn frame_timings(&self) -> Vec<f64> {
+        self.phases.to_vec()
+    }
+
+    /// The graphics context's counters: the draw calls of the last frame it
+    /// drew, and the bytes of its live textures and of its live buffers.
+    pub fn render_stats(&self) -> Vec<f64> {
+        let backend = &*self.frontend.backend;
+        let _scope = BackendScope::new(backend, ScopeType::Implicit);
+        let stats = backend.get_context().rendering_stats();
+        vec![f64::from(stats.num_draw_calls), f64::from(stats.mem_textures), f64::from(stats.mem_buffers)]
     }
 
     /// A pointer went down on the canvas, at `x`, `y` CSS pixels from its
@@ -432,6 +491,12 @@ impl WebMap {
 const WHEEL_PIXELS: u32 = 0;
 const WHEEL_NOTCHES: u32 = 1;
 
+/// The time the tile workers' replies took to receive since the last call,
+/// which is none without tile workers.
+fn take_receive_time(transport: Option<&Rc<SerializingTransport>>) -> Duration {
+    transport.map_or(Duration::ZERO, |transport| transport.take_receive_time())
+}
+
 /// The input methods' `modifiers`: Shift 1, Ctrl 2, Alt 4, Meta 8.
 fn modifiers_from_bits(bits: u32) -> Modifiers {
     Modifiers { shift: bits & 1 != 0, ctrl: bits & 2 != 0, alt: bits & 4 != 0, meta: bits & 8 != 0 }
@@ -458,20 +523,13 @@ impl WebMap {
         let run_loop = RunLoop::get();
         run_loop.set_waker(Some(pump::waker()));
         scheduler.set_waker(Some(pump::waker()));
-        let between_frames = {
-            let run_loop = run_loop.clone();
-            pump::add(move || {
-                run_loop.run_once();
-                true
-            })
-        };
-        let mut renderer = Renderer::new(backend.clone(), pixel_ratio as f32, local_ideograph_font_family);
+        let mut renderer = Renderer::new(Rc::clone(&backend), pixel_ratio as f32, local_ideograph_font_family);
         let received = Rc::new(Cell::new(0));
         // With no tile workers, the renderer keeps its in-process transport:
         // the tiles' work runs on this instance.
         #[cfg(feature = "tile-workers")]
-        if ports.length() > 0 {
-            let count = received.clone();
+        let transport = (ports.length() > 0).then(|| {
+            let count = Rc::clone(&received);
             let transport = tile_workers::transport(
                 ports.iter().map(JsCast::unchecked_into).collect(),
                 move |_| count.set(count.get() + 1),
@@ -479,10 +537,29 @@ impl WebMap {
                     let _ = on_fatal.call2(&JsValue::NULL, &JsValue::from(instance as u32), &message);
                 },
             );
-            renderer.set_tile_worker_transport(transport);
-        }
+            renderer.set_tile_worker_transport(Rc::<SerializingTransport>::clone(&transport));
+            transport
+        });
         #[cfg(not(feature = "tile-workers"))]
-        let _ = (ports, on_fatal);
+        let transport: Option<Rc<SerializingTransport>> = {
+            let _ = (ports, on_fatal);
+            None
+        };
+        let between_frames_ms = Rc::new(Cell::new([0.0; 2]));
+        let between_frames = {
+            let run_loop = run_loop.clone();
+            let transport = transport.as_ref().map(Rc::clone);
+            let spent = Rc::clone(&between_frames_ms);
+            pump::add(move || {
+                let start = Instant::now();
+                run_loop.run_once();
+                let [all, tiles] = spent.get();
+                let ms = |duration: Duration| duration.as_secs_f64() * 1000.0;
+                let replies = take_receive_time(transport.as_ref());
+                spent.set([all + ms(start.elapsed()), tiles + ms(replies)]);
+                true
+            })
+        };
         let mut map =
             Map::new(MapOptions { size, pixel_ratio: pixel_ratio as f32, ..Default::default() }).map_err(js_error)?;
         map.set_waker(Some(pump::waker()));
@@ -499,6 +576,10 @@ impl WebMap {
             pixel_ratio,
             received,
             gestures: GestureRecognizer::default(),
+            transport,
+            between_frames_ms,
+            pending: [0.0; PHASES],
+            phases: [0.0; PHASES],
         })
     }
 

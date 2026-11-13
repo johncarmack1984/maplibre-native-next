@@ -74,6 +74,7 @@ impl BorrowedTextures {
     /// The kinds of sync with which the host can wait for a frame (the
     /// producer's) and the target for the host's reads (the consumer's), on
     /// `device`: queue order only on the host's queue.
+    #[must_use]
     pub fn sync_kinds(device: &Device) -> (SyncKinds, SyncKinds) {
         let mut kinds = SyncKinds::of(&[SyncKind::CpuComplete, SyncKind::MetalSharedEvent]);
         if device.has_host_queue() {
@@ -144,11 +145,13 @@ impl BorrowedTextures {
     }
 
     /// The textures' pixel format.
+    #[must_use]
     pub fn pixel_format(&self) -> MTLPixelFormat {
         self.textures.first().map_or(MTLPixelFormat::Invalid, |texture| texture.pixelFormat())
     }
 
     /// The depth textures' pixel format, or `None` for a ring without them.
+    #[must_use]
     pub fn depth_pixel_format(&self) -> Option<MTLPixelFormat> {
         self.depth_textures.first().map(|texture| texture.pixelFormat())
     }
@@ -284,7 +287,7 @@ impl BorrowedTarget {
         let depth = textures.textures.len();
         let size = textures.size;
         let resource = Rc::new(Resource {
-            backend: backend.backend_impl().clone(),
+            backend: Rc::clone(backend.backend_impl()),
             textures: RefCell::new(textures),
             selected: Cell::new(0),
             depth: RefCell::new(None),
@@ -292,7 +295,7 @@ impl BorrowedTarget {
             render_pass_descriptor: RefCell::new(None),
             waits: RefCell::new(vec![None; depth]),
         });
-        let target = Rc::new(DrawTarget::new(size, resource.clone()));
+        let target = Rc::new(DrawTarget::new(size, Rc::<Resource>::clone(&resource)));
         Ok(BorrowedTarget { backend, resource, target, producer, event, event_value: Cell::new(0) })
     }
 
@@ -307,6 +310,10 @@ impl BorrowedTarget {
     ///
     /// Fails with [`ErrorKind::InvalidArgument`](mln_util::ErrorKind) for a
     /// shared event that names no object.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the release takes the host's sync, as every backend's does, and drops it"
+    )]
     pub fn release(&self, slot: usize, consumer: ConsumerSync) -> Result<(), Error> {
         let sync = consumer.sync;
         let mut waits = self.resource.waits.borrow_mut();
@@ -410,7 +417,7 @@ impl BorrowedTarget {
 
 impl FrameTarget for BorrowedTarget {
     fn begin_frame(&self) -> Option<Rc<dyn frame::DrawTarget>> {
-        Some(self.target.clone())
+        Some(Rc::<DrawTarget>::clone(&self.target))
     }
 
     fn end_frame(&self, _encoder: &dyn CommandEncoder) -> Handoff {

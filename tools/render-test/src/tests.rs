@@ -150,7 +150,7 @@ fn shuffle_order_depends_only_on_the_seed() {
     assert_eq!(order, shuffled(1));
     assert_ne!(order, original);
     assert_ne!(order, shuffled(2));
-    let (mut sorted, mut original_sorted) = (order.clone(), original);
+    let (mut sorted, mut original_sorted) = (order, original);
     sorted.sort_unstable();
     original_sorted.sort_unstable();
     assert_eq!(sorted, original_sorted);
@@ -331,7 +331,7 @@ fn run_operations(id: &str, map: &mut MockMap) -> (TestMetadata, bool) {
 #[test]
 fn transition_operations_drive_the_map() {
     let calls = Rc::new(RefCell::new(Vec::new()));
-    let mut map = MockMap::new(calls.clone(), [255, 0, 0, 255]);
+    let mut map = MockMap::new(Rc::clone(&calls), [255, 0, 0, 255]);
     let (metadata, ok) = run_operations("render-tests/background-color/transition", &mut map);
     assert!(ok);
     assert_eq!(metadata.error_message, "");
@@ -342,7 +342,7 @@ fn transition_operations_drive_the_map() {
 #[test]
 fn unsupported_operations_error_the_test() {
     let calls = Rc::new(RefCell::new(Vec::new()));
-    let mut map = MockMap::new(calls.clone(), [0, 0, 0, 255]);
+    let mut map = MockMap::new(Rc::clone(&calls), [0, 0, 0, 255]);
     // addImage, addLayer, wait: addImage is not implemented by the mock.
     let (metadata, ok) = run_operations("render-tests/runtime-styling/image-add-1x-image-2x-screen", &mut map);
     assert!(!ok);

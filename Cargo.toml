@@ -17,6 +17,8 @@ members = [
     "tools/test-server",
     "vendor/*",
 ]
+# Patched copies of crates.io packages ([patch.crates-io] below), not ours.
+exclude = ["patches/*"]
 
 [workspace.package]
 # Every package is published at this version. To release, bump it here and
@@ -33,7 +35,10 @@ repository = "https://github.com/louwers/mln-rs"
 # code is, all or in part, under the root license has a LICENSE.md symlink to
 # it, which `cargo package` archives as a file. The ports of other projects
 # also ship their own license files.
-include = ["/src", "/tests", "/LICENSE*"]
+include = ["/src", "/tests", "/build.rs", "/LICENSE*"]
+# The libraries' keywords and categories on crates.io. mln-rs has its own.
+keywords = ["maplibre", "map"]
+categories = ["graphics", "science::geo"]
 
 [workspace.dependencies]
 # In-repo libraries. The exact version keeps a release's packages together.
@@ -169,8 +174,9 @@ regex = { version = "1.13.1" }
 # tools/render-test's JSON (with serde_json), and the types that cross to a
 # tile worker in another wasm instance (rc: the values behind their `Arc`s).
 serde = { version = "1.0.229", features = ["derive", "rc"] }
-# The same engine as the C++ core's vendored SQLite, built from source like it.
-rusqlite = { version = "0.41.1", features = ["bundled"] }
+# The same engine as the C++ core's vendored SQLite, built from source like it
+# where the platform has none (crates/mln_storage).
+rusqlite = "0.41.1"
 # preserve_order: objects keep their members in document order, which the
 # style parser and the order of expression errors rely on.
 # float_roundtrip: correctly rounded float parsing (the default parser can be
@@ -347,6 +353,19 @@ unused_qualifications = "warn"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+# The manifests: package metadata, feature names and dependency declarations.
+# A workspace this size can't avoid two versions of a crate among its
+# dependencies' dependencies.
+cargo = { level = "warn", priority = -1 }
+multiple_crate_versions = "allow"
+# Development macros that shouldn't be merged: `dbg!` prints to stderr, and
+# `todo!` and `unimplemented!` panic.
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+# `Arc::clone(&x)` and `Rc::clone(&x)` for a new reference to the same value,
+# so that `x.clone()` is a copy of a value.
+clone_on_ref_ptr = "warn"
 # Their fixes would change what the code does: numeric conversions that
 # truncate, wrap or saturate on purpose, where `try_from` would fail
 # instead, and exact float comparisons, which an epsilon would loosen.
@@ -425,6 +444,10 @@ supercluster.workspace = true
 
 [lints]
 workspace = true
+
+# Dependencies with a fix not yet released (patches/README.md).
+[patch.crates-io]
+fsst-rs = { path = "patches/fsst-rs" }
 
 # Fat LTO with one codegen unit: smaller release binaries, for a longer
 # build. The browser build adds opt-level "s" (`just web`).

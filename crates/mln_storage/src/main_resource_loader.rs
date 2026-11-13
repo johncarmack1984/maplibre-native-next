@@ -53,7 +53,7 @@ impl ThreadInner {
         callback: impl Fn(Response) + 'static,
     ) -> Option<Box<dyn AsyncRequest>> {
         let online_file_source = match &self.online_file_source {
-            Some(online) if online.can_request(resource) => online.clone(),
+            Some(online) if online.can_request(resource) => Arc::clone(online),
             _ => return parent,
         };
 
@@ -154,7 +154,7 @@ impl MainResourceLoaderThread {
                             // Copy response fields for cache control request
                             res.prior_modified = response.modified;
                             res.prior_expires = response.expires;
-                            res.prior_etag = response.etag.clone();
+                            res.prior_etag = response.etag;
                         }
 
                         let parent = this.tasks.borrow_mut().remove(&req);

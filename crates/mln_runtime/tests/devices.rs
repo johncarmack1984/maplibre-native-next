@@ -8,8 +8,9 @@ mod support;
 
 use mln_map::MapMode;
 use mln_runtime::{
-    AttachOptions, BackendType, BorrowedRing, ConsumerSync, DemandMode, Device, DeviceOptions, ErrorKind, FrameDemand,
-    FrameDisposition, GlApi, GpuSync, Map, MapOptions, RenderSession, RenderTarget, Runtime, SyncKind, SyncKinds,
+    Adapter, AttachOptions, BackendType, BorrowedRing, ConsumerSync, DemandMode, Device, DeviceOptions, ErrorKind,
+    FrameDemand, FrameDisposition, GlApi, GpuSync, Map, MapOptions, RenderSession, RenderTarget, Runtime, SyncKind,
+    SyncKinds,
 };
 use mln_util::size::Size;
 use support::{eventually, runtime, wait};
@@ -109,6 +110,31 @@ fn sessions_of_two_maps_share_each_backends_device() {
     }
 }
 
+/// A session on a WebGPU device that is lost fails with the device's reason,
+/// rather than rendering on into nothing.
+#[cfg(feature = "webgpu")]
+#[test]
+fn a_session_fails_once_its_web_gpu_device_is_lost() {
+    let Some(device) = device_of(BackendType::WebGPU) else { return };
+    let runtime = runtime();
+    let map = map_of(&runtime, "#ff0000");
+    let session = attach(&map, RenderTarget::Offscreen { size: SIZE, device: Some(device.clone()) }, SyncKinds::NONE);
+    assert_eq!(FrameDisposition::Rendered, render(&session));
+
+    let Device::WebGpu(webgpu) = &device else { unreachable!("a WebGPU device") };
+    webgpu.device().destroy();
+    // wgpu runs the device-lost callback as it polls the device.
+    let reported = eventually(|| {
+        let _ = webgpu.device().poll(wgpu::PollType::Poll);
+        webgpu.lost().is_some()
+    });
+    assert!(reported, "the device reports its loss");
+    assert_eq!(FrameDisposition::Failed, render(&session));
+    let failure = session.snapshot().unwrap().failure.expect("a failure");
+    assert_eq!(failure.kind, ErrorKind::TargetLost);
+    assert!(failure.message.contains("the WebGPU device was lost"), "{}", failure.message);
+}
+
 /// An OpenGL device of either API, whose sessions have a context each or
 /// take turns in one.
 #[test]
@@ -120,6 +146,18 @@ fn sessions_of_two_maps_share_each_kind_of_open_gl_device() {
             sessions_of_two_maps_share(device, &format!("{options:?}"));
         }
     }
+}
+
+/// OpenGL lists one GPU, the one its display renders on, so an OpenGL
+/// device takes the first index and no other.
+#[test]
+fn an_open_gl_device_names_its_one_gpu_by_index() {
+    let first = DeviceOptions { adapter: Some(Adapter::Index(0)), ..DeviceOptions::default() };
+    let Some(device) = device_with(BackendType::OpenGL, first) else { return };
+    sessions_of_two_maps_share(device, "the first OpenGL GPU");
+    let second = DeviceOptions { adapter: Some(Adapter::Index(1)), ..DeviceOptions::default() };
+    let error = Device::with_backend(BackendType::OpenGL, second).unwrap_err();
+    assert_eq!(ErrorKind::NotFound, error.kind);
 }
 
 #[cfg(all(feature = "vulkan", not(any(target_vendor = "apple", target_family = "wasm"))))]
@@ -173,7 +211,7 @@ mod vulkan {
     #[test]
     fn a_wrapped_device_renders_under_the_hosts_queue_lock() {
         let lock = Arc::new(CountingLock::default());
-        let Some((wrap, library)) = wrapped(Some(lock.clone())) else { return };
+        let Some((wrap, library)) = wrapped(Some(Arc::<CountingLock>::clone(&lock))) else { return };
         let runtime = runtime();
         let (red, blue) = (map_of(&runtime, "#ff0000"), map_of(&runtime, "#0000ff"));
         // A session of the wrap and one of the library's device share the
@@ -213,7 +251,7 @@ mod vulkan {
     #[test]
     fn an_abandon_off_the_drivers_thread_lets_go_of_the_hosts_queue_lock() {
         let dropped = Arc::new(AtomicUsize::new(0));
-        let Some((wrap, library)) = wrapped(Some(Arc::new(DroppedLock(dropped.clone())))) else { return };
+        let Some((wrap, library)) = wrapped(Some(Arc::new(DroppedLock(Arc::clone(&dropped))))) else { return };
         let runtime = runtime();
         let map = map_of(&runtime, "#ff0000");
         let target = RenderTarget::Offscreen { size: SIZE, device: Some(wrap) };
@@ -292,7 +330,7 @@ mod vulkan {
         fn new() -> Option<(Device, Host)> {
             let Some(Device::Vulkan(vulkan)) = device_of(BackendType::Vulkan) else { return None };
             let lock = Arc::new(HostQueueLock::default());
-            let vulkan = vulkan.with_queue_lock(lock.clone()).unwrap();
+            let vulkan = vulkan.with_queue_lock(Arc::<HostQueueLock>::clone(&lock)).unwrap();
             let raw = vulkan.raw();
             // SAFETY: the device's own loader function and handles.
             let (instance, device) = unsafe {

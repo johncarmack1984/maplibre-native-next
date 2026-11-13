@@ -291,9 +291,9 @@ mod tests {
         let (loading, loaded) = (OverscaledTileID::from_zxy(1, 0, 0), OverscaledTileID::from_zxy(1, 1, 0));
         let loading_tile = VectorTileMock::new(loading);
         loading_tile.base.renderable.set(false);
-        let loading_necessity = loading_tile.necessity.clone();
+        let loading_necessity = Rc::clone(&loading_tile.necessity);
         let loaded_tile = VectorTileMock::new(loaded);
-        let loaded_necessity = loaded_tile.necessity.clone();
+        let loaded_necessity = Rc::clone(&loaded_tile.necessity);
 
         cache.add(loading, Box::new(loading_tile));
         cache.add(loaded, Box::new(loaded_tile));
@@ -318,10 +318,10 @@ mod tests {
         );
         let far_tile = VectorTileMock::new(far);
         far_tile.base.renderable.set(false);
-        let far_necessity = far_tile.necessity.clone();
+        let far_necessity = Rc::clone(&far_tile.necessity);
         let near_tile = VectorTileMock::new(near);
         near_tile.base.renderable.set(false);
-        let near_necessity = near_tile.necessity.clone();
+        let near_necessity = Rc::clone(&near_tile.necessity);
         cache.add(far, Box::new(far_tile));
         cache.add(near, Box::new(near_tile));
         cache.add(loaded, Box::new(VectorTileMock::new(loaded)));

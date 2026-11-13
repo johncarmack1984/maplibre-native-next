@@ -273,7 +273,7 @@ impl Map {
     /// The runtime that the map lives on.
     #[must_use]
     pub fn runtime(&self) -> Runtime {
-        Runtime { shared: self.shared.runtime.clone() }
+        Runtime { shared: Arc::clone(&self.shared.runtime) }
     }
 
     /// The sequence number of the last command sent to the map.
@@ -517,8 +517,9 @@ impl Map {
     /// map already has a session or was released, or a window is minimized
     /// or has no client area, and with
     /// [`ErrorKind::InvalidArgument`](mln_util::ErrorKind) for an empty
-    /// target, or a [`Surface::wgpu`](crate::Surface::wgpu) without the
-    /// host's device. The completion fails as
+    /// target, a [`Surface::wgpu`](crate::Surface::wgpu) without the
+    /// host's device, or a Win32 window with a pixel format of its own that
+    /// OpenGL would present to. The completion fails as
     /// [`Device::new`](crate::Device::new) does when the
     /// session has to create its device and can't, with
     /// [`ErrorKind::InvalidState`](mln_util::ErrorKind) when the window or
@@ -602,7 +603,7 @@ impl Map {
                         return outbox.resolve(resolver, Err(error));
                     }
                     let outcome = Rc::new(RefCell::new(None));
-                    let done = outcome.clone();
+                    let done = Rc::clone(&outcome);
                     entry.core.render_still(Box::new(move |result| {
                         *done.borrow_mut() = Some(result.map_err(still_image_error));
                     }));
@@ -636,7 +637,7 @@ impl Map {
     }
 
     pub(crate) fn glyph_cache(&self) -> Arc<GlyphCache> {
-        self.shared.runtime.glyph_cache.clone()
+        Arc::clone(&self.shared.runtime.glyph_cache)
     }
 
     /// Reserves the map for the session `id`.
@@ -689,7 +690,7 @@ impl Map {
                 move |entry, _| {
                     entry.session = Some(link);
                     let resized = entry.core.set_size(size);
-                    (resized, entry.core.update_reader(), entry.core.renderer_events(), entry.published.clone())
+                    (resized, entry.core.update_reader(), entry.core.renderer_events(), Arc::clone(&entry.published))
                 },
                 move |_, (resized, reader, events, published), _, _| match resized {
                     Ok(()) => {
@@ -1332,9 +1333,9 @@ impl Ends {
     /// Makes `animation`'s end function wait for the snapshot.
     fn defer(&self, animation: &mut AnimationOptions) {
         if let Some(end_fn) = animation.transition_end_fn.take() {
-            let ended = self.0.clone();
+            let ended = Arc::clone(&self.0);
             animation.transition_end_fn = Some(Arc::new(move |end: &TransitionEnd| {
-                ended.lock().push((end_fn.clone(), *end));
+                ended.lock().push((Arc::clone(&end_fn), *end));
             }));
         }
     }
@@ -1369,7 +1370,7 @@ pub(crate) fn create(
     }
     let _ = published.updates.set(map.update_reader());
     let flush_scheduled = Arc::new(AtomicBool::new(false));
-    let scheduled = flush_scheduled.clone();
+    let scheduled = Arc::clone(&flush_scheduled);
     let run_loop = core.run_loop.clone();
     map.set_waker(Some(Arc::new(move || {
         if !scheduled.swap(true, Ordering::SeqCst) {

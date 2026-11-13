@@ -666,7 +666,7 @@ impl Device {
                 ]
             }
             Selector::Index(None) => {
-                let mut ranked = gpus.clone();
+                let mut ranked = gpus;
                 // SAFETY: plain queries of the GPUs.
                 ranked.sort_by_key(|&gpu| match unsafe { instance.get_physical_device_properties(gpu) }.device_type {
                     vk::PhysicalDeviceType::DISCRETE_GPU => 0,
@@ -1055,7 +1055,7 @@ impl Device {
         // A revoked hold leases revoked ones, never ones without a lock.
         let host_lock = self.host_lock.as_ref().map(|hold| Arc::new(LockHold(Mutex::new(hold.0.lock().clone()))));
         let lease = QueueLease(host_lock.clone());
-        (Device { shared: self.shared.clone(), host_lock }, lease)
+        (Device { shared: Arc::clone(&self.shared), host_lock }, lease)
     }
 
     /// Runs `f` with the queue, holding the queue's mutex and the host's

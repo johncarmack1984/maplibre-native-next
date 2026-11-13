@@ -206,6 +206,7 @@ impl BorrowedRing {
 
     /// A ring of the host's Metal textures.
     #[cfg(all(feature = "metal", target_vendor = "apple"))]
+    #[must_use]
     pub fn metal(textures: mln_mtl::BorrowedTextures) -> BorrowedRing {
         BorrowedRing { kind: RingKind::Metal(textures) }
     }
@@ -284,7 +285,10 @@ impl BorrowedRing {
     /// [`depth_stencil_formats`](Device::depth_stencil_formats).
     #[must_use]
     pub fn takes_depth_on(&self, device: &Device) -> bool {
+        // Irrefutable in a build with OpenGL alone, and refutable in one
+        // with other backends.
         #[cfg(all(feature = "gl", not(target_family = "wasm")))]
+        #[allow(irrefutable_let_patterns)]
         if let RingKind::Gl(_) = self.kind {
             return true;
         }
@@ -584,7 +588,7 @@ impl Surface {
     /// backend presents to.
     pub(crate) fn clone_window(&self) -> Option<Surface> {
         match &self.kind {
-            SurfaceKind::Window(window) => Some(Surface { kind: SurfaceKind::Window(window.clone()) }),
+            SurfaceKind::Window(window) => Some(Surface { kind: SurfaceKind::Window(Arc::clone(window)) }),
             #[cfg(all(feature = "gl", not(target_family = "wasm")))]
             SurfaceKind::Gl(surface) => Some(Surface { kind: SurfaceKind::Gl(*surface) }),
             #[allow(unreachable_patterns)]
@@ -604,11 +608,30 @@ impl Surface {
         Ok(())
     }
 
+    /// Fails with [`ErrorKind::InvalidArgument`](mln_util::ErrorKind) for a
+    /// Win32 window whose pixel format isn't the library's when OpenGL
+    /// presents to it: on `device`, or without a device, in a build whose
+    /// first backend is OpenGL. Windows doesn't let a pixel format change.
+    /// A session that falls back to OpenGL because Vulkan is missing finds
+    /// out as it starts.
+    #[cfg_attr(not(all(feature = "gl", windows)), allow(clippy::unnecessary_wraps))]
+    pub(crate) fn check_pixel_format(&self, device: Option<&Device>) -> Result<(), Error> {
+        #[cfg(all(feature = "gl", windows))]
+        if let SurfaceKind::Window(window) = &self.kind
+            && device.map_or(cfg!(not(feature = "vulkan")), |device| device.backend() == BackendType::OpenGL)
+        {
+            mln_gl::SurfaceTarget::check_window(&**window)?;
+        }
+        #[cfg(not(all(feature = "gl", windows)))]
+        let _ = (self, device);
+        Ok(())
+    }
+
     /// The window, for a surface of one.
     #[allow(clippy::match_wildcard_for_single_variants)]
     pub(crate) fn host_window(&self) -> Option<Arc<dyn Window>> {
         match &self.kind {
-            SurfaceKind::Window(window) => Some(window.clone()),
+            SurfaceKind::Window(window) => Some(Arc::clone(window)),
             #[allow(unreachable_patterns)]
             _ => None,
         }
@@ -872,6 +895,17 @@ impl Device {
         }
     }
 
+    /// Why the device was lost, once the library's WebGPU device is: the
+    /// failure of the sessions that render on it.
+    pub(crate) fn lost(&self) -> Option<Error> {
+        match *self {
+            #[cfg(feature = "webgpu")]
+            Device::WebGpu(ref device) => device.lost().map(|message| Error::target_lost(message.to_owned())),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        }
+    }
+
     /// Whether an abandon keeps a session's graphics objects on the device
     /// until the process exits, which only a detach frees: OpenGL's and
     /// WebGPU's, as the C API promises, since only the session's own thread
@@ -896,7 +930,8 @@ impl Device {
     /// Apple's platforms, and Vulkan elsewhere, or OpenGL where there is no
     /// Vulkan. WebGPU (wgpu) takes the place of a native backend that isn't
     /// there. A backend that can't name the GPU that `options` names is
-    /// skipped: OpenGL names none, and only Vulkan names one by UUID or LUID.
+    /// skipped: only Vulkan names one by UUID or LUID. OpenGL lists one GPU,
+    /// the one its display renders on, at index 0.
     /// So is OpenGL where it can't render with `options.gl_api`.
     ///
     /// Fails with [`ErrorKind::NotFound`](mln_util::ErrorKind) when
@@ -955,8 +990,13 @@ impl Device {
             .map(Device::Vulkan),
             #[cfg(all(feature = "gl", not(target_family = "wasm")))]
             BackendType::OpenGL => {
-                if adapter.is_some() {
-                    return Err(Error::unsupported("OpenGL picks no GPU"));
+                // An OpenGL device renders on the one GPU of its display, so
+                // its list of GPUs holds that one.
+                match index(adapter)? {
+                    None | Some(0) => {}
+                    Some(index) => {
+                        return Err(Error::not_found(format!("adapter_index {index} is past OpenGL's one GPU")));
+                    }
                 }
                 let api = match gl_api {
                     GlApi::Gles => mln_gl::Api::Gles,
