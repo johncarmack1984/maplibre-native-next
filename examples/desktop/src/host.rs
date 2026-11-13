@@ -431,8 +431,10 @@ impl ApplicationHandler<UserEvent> for Host {
                 open.input(input);
             }
             // macOS's trackpad magnify and rotate (winit has them nowhere
-            // else). winit's rotation turns counterclockwise.
-            WindowEvent::PinchGesture { delta, phase, .. } => open.trackpad(false, delta.exp(), 0.0, phase),
+            // else). A magnify's delta is AppKit's magnification, the change
+            // in scale since the last event: the event scales by 1 + delta.
+            // winit's rotation turns counterclockwise.
+            WindowEvent::PinchGesture { delta, phase, .. } => open.trackpad(false, 1.0 + delta, 0.0, phase),
             WindowEvent::RotationGesture { delta, phase, .. } => {
                 open.trackpad(true, 1.0, -f64::from(delta), phase);
             }

@@ -248,7 +248,7 @@ fn pinching_zooms_and_twisting_rotates_around_the_fingers() {
 }
 
 #[test]
-fn platform_pinches_zoom_turn_and_glide() {
+fn platform_pinches_zoom_and_turn_and_stop_where_they_end() {
     let mut rig = Rig::new();
     let ground = rig.unproject(p(200.0, 200.0));
     rig.pinch(1.0, 0.0, PinchPhase::Begin);
@@ -262,16 +262,14 @@ fn platform_pinches_zoom_turn_and_glide() {
     assert!((rig.bearing() - 20.0).abs() < 1e-9, "{}", rig.bearing());
     let under = rig.project(ground);
     assert!(distance(under, p(200.0, 200.0)) < 1e-5, "{under:?}");
+    // Lifted while still zooming and turning, it doesn't glide on, and the
+    // bearing is past the north snap's 7 degrees.
     rig.pinch(1.0, 0.0, PinchPhase::End);
     assert!(!rig.input.is_active());
-    assert!(rig.camera.is_gesture_in_progress(), "the gesture lasts through its glide");
-    rig.settle();
-    // 0.05 levels and 2 degrees per 16 ms glide on, as touch pinches do.
-    assert!(rig.zoom() > 12.7, "{}", rig.zoom());
-    assert!(rig.bearing() > 25.0, "{}", rig.bearing());
     assert!(!rig.camera.is_gesture_in_progress());
-    let under = rig.project(ground);
-    assert!(distance(under, p(200.0, 200.0)) < 1e-3, "the glide holds the center: {under:?}");
+    assert_eq!(rig.settle(), 0);
+    assert!((rig.zoom() - 12.5).abs() < 1e-9, "{}", rig.zoom());
+    assert!((rig.bearing() - 20.0).abs() < 1e-9, "{}", rig.bearing());
 }
 
 #[test]
@@ -298,23 +296,6 @@ fn a_cancelled_platform_pinch_doesnt_glide_and_a_touch_takes_over() {
 }
 
 #[test]
-fn a_platform_pinch_held_still_before_it_ends_doesnt_glide() {
-    let mut rig = Rig::new();
-    rig.pinch(1.0, 0.0, PinchPhase::Begin);
-    for _ in 0..10 {
-        rig.now += 16.0;
-        rig.pinch(2f64.powf(0.05), 1.0, PinchPhase::Update);
-    }
-    rig.now += 300.0;
-    rig.pinch(1.0, 0.0, PinchPhase::End);
-    let (zoom, bearing) = (rig.zoom(), rig.bearing());
-    rig.settle();
-    assert!((rig.zoom() - zoom).abs() < 1e-9);
-    // Only the bearing snap could move it, and -10 degrees is past its 7.
-    assert!((rig.bearing() - bearing).abs() < 1e-9);
-}
-
-#[test]
 fn a_platform_pinch_stops_a_notch_ease() {
     let mut rig = Rig::new();
     rig.send(notches(p(400.0, 300.0), -1.0));
@@ -322,6 +303,32 @@ fn a_platform_pinch_stops_a_notch_ease() {
     rig.settle();
     assert!((rig.zoom() - 12.0).abs() < 1e-9, "{}", rig.zoom());
     rig.pinch(1.0, 0.0, PinchPhase::End);
+}
+
+// Port-only: AppKit sends a trackpad pinch as magnify events, each carrying
+// the change in scale since the last, and the desktop host passes 1 + that as
+// the scale. These come 11 ms apart, from fingers that spread faster, then
+// slow and lift while still moving.
+#[test]
+fn a_trackpad_pinch_zooms_by_its_magnification() {
+    const MAGNIFICATIONS: [f64; 18] = [
+        0.005, 0.01, 0.02, 0.03, 0.035, 0.04, 0.04, 0.04, 0.035, 0.035, 0.03, 0.03, 0.025, 0.02, 0.02, 0.015, 0.015,
+        0.01,
+    ];
+    let levels = MAGNIFICATIONS.iter().map(|m| 1.0 + m).product::<f64>().log2();
+    let mut rig = Rig::new();
+    let zoom = rig.zoom();
+    rig.pinch(1.0, 0.0, PinchPhase::Begin);
+    for magnification in MAGNIFICATIONS {
+        rig.now += 11.0;
+        rig.pinch(1.0 + magnification, 0.0, PinchPhase::Update);
+    }
+    assert!((rig.zoom() - zoom - levels).abs() < 1e-9, "{} levels for {levels}", rig.zoom() - zoom);
+    rig.now += 11.0;
+    rig.pinch(1.0, 0.0, PinchPhase::End);
+    rig.settle();
+    assert!((rig.zoom() - zoom - levels).abs() < 1e-9, "{} levels for {levels}", rig.zoom() - zoom);
+    assert!(!rig.camera.is_gesture_in_progress());
 }
 
 #[test]

@@ -96,9 +96,10 @@ pub enum Input {
     /// A pinch the platform recognized, such as a macOS trackpad's magnify
     /// and rotate: each update zooms by `scale` (above 1 spreads the
     /// fingers, zooming in) and turns `rotation` degrees clockwise on screen
-    /// since the last, around `center`. It glides on when it ends, as a touch
-    /// pinch does. An update without a begin begins; pointers already down
-    /// keep the map, and a touch that goes down takes over from the pinch.
+    /// since the last, around `center`. It stops where it ends, as the
+    /// platform's own pinch does, without the glide a touch pinch has. An
+    /// update without a begin begins; pointers already down keep the map,
+    /// and a touch that goes down takes over from the pinch.
     Pinch {
         center: ScreenCoordinate,
         scale: f64,
@@ -114,7 +115,8 @@ pub enum Input {
 pub enum PinchPhase {
     Begin,
     Update,
-    /// The fingers lifted: the pinch glides on.
+    /// The fingers lifted: the pinch stops, and only the snaps settle what it
+    /// changed.
     End,
     /// The platform took the pinch away: nothing continues, and the camera's
     /// animations stop.
