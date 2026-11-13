@@ -10,6 +10,9 @@
 //!   for `mln_renderer`'s `SerializingTransport`, over a `MessagePort` to each.
 //! - `tile_worker`: the side of a Web Worker that runs tile workers, one
 //!   `TileWorkerHost` per port that a map connected.
+//!
+//!   Both come with the `tile-workers` feature, the default. Without it, a
+//!   map does its tiles' work on its own instance.
 //! - `shaper`: the font-face shaper as a second module, which the map's
 //!   instance loads the first time a style declares font faces.
 //!
@@ -19,7 +22,9 @@
 
 pub mod pump;
 pub mod shaper;
+#[cfg(feature = "tile-workers")]
 pub mod tile_worker;
+#[cfg(feature = "tile-workers")]
 pub mod tile_workers;
 
 use std::sync::Arc;

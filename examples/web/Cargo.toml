@@ -21,6 +21,12 @@ name = "mln_web"
 crate-type = ["cdylib", "rlib"]
 
 [features]
+default = ["tile-workers"]
+# Each tile's parsing and layout in tile workers in other Web Workers
+# (mln_web_host's `tile_workers`), which the page starts. Without it, the
+# map's own Web Worker does that work, and the module leaves out the
+# encoding that the messages to and from the tile workers cross in.
+tile-workers = ["mln_web_host/tile-workers"]
 # The module for browsers without WebGPU, which draws with WebGL2 through
 # mln_gl (src/map_webgl.rs). `just web` builds it beside the WebGPU one; the
 # page loads one of the two. Nothing in it calls mln_webgpu or wgpu, so the

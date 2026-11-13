@@ -95,6 +95,8 @@ check-wasm:  _dev-shell
     {{dev_shell}} cargo clippy --target wasm32-unknown-unknown -p {{main_crate}}
     cargo clippy --target wasm32-unknown-unknown -p mln-rs-web -p mln-rs-web-shaper -p mln-rs-web-host
     cargo clippy --target wasm32-unknown-unknown -p mln-rs-web --features webgl
+    cargo clippy --target wasm32-unknown-unknown -p mln-rs-web --no-default-features
+    cargo clippy --target wasm32-unknown-unknown -p mln-rs-web --no-default-features --features webgl
     ! cargo tree --target wasm32-unknown-unknown -p mln-rs-web --edges normal --prefix none | grep -q '^rusqlite '
     ! cargo tree --target wasm32-unknown-unknown -p mln-rs-web --edges normal,build --prefix none | grep -q '^cc '
     ! cargo tree --target wasm32-unknown-unknown -p mln-rs-web --edges normal --prefix none | grep -Eq '^(mln-rs-gl|glow) '

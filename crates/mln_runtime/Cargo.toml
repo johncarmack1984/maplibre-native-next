@@ -58,7 +58,7 @@ mln_storage_offline.workspace = true
 # canvases.
 [target.'cfg(target_family = "wasm")'.dependencies]
 js-sys.workspace = true
-mln_web_host.workspace = true
+mln_web_host = { workspace = true, features = ["tile-workers"] }
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
 web-sys = { workspace = true, features = ["HtmlCanvasElement", "OffscreenCanvas", "WebGl2RenderingContext"] }

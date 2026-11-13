@@ -43,6 +43,8 @@ the other's backend or shaders.
   `GPUQueue.writeBuffer` uploads them from there (mln_util's
   `host_bytes`); what reads or changes them first, such as feature state,
   copies them in.
+
+  The tile workers are the `tile-workers` feature, on by default. Without it (`--no-default-features`), the map's Web Worker does the tiles' work itself on the renderer's in-process transport, the module leaves out the encoding of the messages, and the page starts no tile workers. The default module does the same when the page asks for `workers=0`.
 - in the map's Web Worker again, the first time a style declares font
   faces (`"font-faces"`): the shaper module
   ([crates/mln_web_shaper](../../crates/mln_web_shaper)), mln_text's

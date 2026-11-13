@@ -42,8 +42,8 @@ impl WebMap {
         load_shaper: js_sys::Function,
         local_ideograph_font_family: Option<String>,
     ) -> Result<WebMap, JsValue> {
-        if ports.length() == 0 {
-            return Err(js_error("the map needs at least one tile worker"));
+        if !cfg!(feature = "tile-workers") && ports.length() > 0 {
+            return Err(js_error("this build has no tile workers: start the map with no ports"));
         }
         let size = Size::new(width.max(1), height.max(1));
         let (gl_backend, target) = Target::with_backend(canvas, physical(size, pixel_ratio))

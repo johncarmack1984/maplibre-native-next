@@ -13,6 +13,13 @@ name = "mln_web_host"
 # The doc comments have no examples to run.
 doctest = false
 
+[features]
+default = ["tile-workers"]
+# Tile workers in other Web Workers: `tile_workers` (the map's side) and
+# `tile_worker` (theirs). Without it, a map does its tiles' work on its own
+# instance, through mln_renderer's in-process transport.
+tile-workers = []
+
 # Only the browser target has anything to build.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys.workspace = true

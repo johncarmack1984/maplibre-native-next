@@ -20,7 +20,8 @@
 //                          [{"url": "...", "unicode-range": ["U+1000-109F"]}]
 //   lat, lon, zoom, bearing, pitch
 //                          the camera, unless the hash has one
-//   workers=<n>            Web Workers for the tiles (default: up to 4)
+//   workers=<n>            Web Workers for the tiles (default: up to 4); with 0,
+//                          the map's Web Worker does the tiles' work itself
 //   width, height, ratio   a fixed map size in CSS pixels and pixel ratio
 //                          (default: the window and devicePixelRatio)
 //   localIdeographFontFamily=<CSS font-family list>
@@ -172,7 +173,11 @@ const panicMessage = 'panic=<map|tile> asked for this panic';
 // The rest of the page starts meanwhile: its controls work at once, and
 // what they ask of the map waits in the map's Web Worker until it starts.
 compiling.then((module) => {
-  const ports = tileWorkers.map((worker, i) => {
+  // A module built without the `tile-workers` feature serves none, and its
+  // map does its tiles' work itself.
+  const served = WebAssembly.Module.exports(module).some(({ name }) => name === 'mlnWebServeTileWorker');
+  if (!served) for (const worker of tileWorkers) worker.terminate();
+  const ports = (served ? tileWorkers : []).map((worker, i) => {
     const channel = new MessageChannel();
     const start: StartTileWorker = {
       module,

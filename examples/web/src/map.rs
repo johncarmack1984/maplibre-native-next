@@ -21,7 +21,9 @@ use mln_util::LatLng;
 use mln_util::geo::ScreenCoordinate;
 use mln_util::size::Size;
 use mln_web_host::shaper::{self, ShaperModuleEngine};
-use mln_web_host::{install_cooperative_scheduler, pump, tile_workers};
+#[cfg(feature = "tile-workers")]
+use mln_web_host::tile_workers;
+use mln_web_host::{install_cooperative_scheduler, pump};
 use wasm_bindgen::prelude::*;
 
 #[cfg(feature = "webgl")]
@@ -102,14 +104,16 @@ impl WebMap {
     /// Creates the WebGPU device, a surface on `canvas` (the page's canvas,
     /// transferred to this worker) and the map, at `width` x `height` CSS
     /// pixels. The tiles' workers run in the Web Workers at the other end of
-    /// `ports` (at least one), and `on_fatal(instance, message)` is called if
-    /// one of them panics. Between frames, `mln_web_host::pump` runs the
-    /// map's work (a fetch finished, a reply arrived, a task was queued) as
-    /// it arrives. `load_shaper()` returns a promise of the shaper module
-    /// (`web/pkg/mln_web_shaper.js`), initialized; the map calls it the first
-    /// time a style declares font faces. With `local_ideograph_font_family`
-    /// (a CSS font-family list), the map draws CJK glyphs in it rather than
-    /// downloading them, as GL JS's `localIdeographFontFamily`.
+    /// `ports`, and `on_fatal(instance, message)` is called if one of them
+    /// panics. With no ports they run on this instance, as they do in a build
+    /// without the `tile-workers` feature, which takes none. Between frames,
+    /// `mln_web_host::pump` runs the map's work (a fetch finished, a reply
+    /// arrived, a task was queued) as it arrives. `load_shaper()` returns a
+    /// promise of the shaper module (`web/pkg/mln_web_shaper.js`), initialized;
+    /// the map calls it the first time a style declares font faces. With
+    /// `local_ideograph_font_family` (a CSS font-family list), the map draws
+    /// CJK glyphs in it rather than downloading them, as GL JS's
+    /// `localIdeographFontFamily`.
     /// (`map_webgl.rs` has the `webgl` build's.)
     #[cfg(not(feature = "webgl"))]
     #[allow(clippy::too_many_arguments)]
@@ -123,8 +127,8 @@ impl WebMap {
         load_shaper: js_sys::Function,
         local_ideograph_font_family: Option<String>,
     ) -> Result<WebMap, JsValue> {
-        if ports.length() == 0 {
-            return Err(js_error("the map needs at least one tile worker"));
+        if !cfg!(feature = "tile-workers") && ports.length() > 0 {
+            return Err(js_error("this build has no tile workers: start the map with no ports"));
         }
 
         let size = Size::new(width.max(1), height.max(1));
@@ -463,15 +467,22 @@ impl WebMap {
         };
         let mut renderer = Renderer::new(backend.clone(), pixel_ratio as f32, local_ideograph_font_family);
         let received = Rc::new(Cell::new(0));
-        let count = received.clone();
-        let transport = tile_workers::transport(
-            ports.iter().map(JsCast::unchecked_into).collect(),
-            move |_| count.set(count.get() + 1),
-            move |instance, message| {
-                let _ = on_fatal.call2(&JsValue::NULL, &JsValue::from(instance as u32), &message);
-            },
-        );
-        renderer.set_tile_worker_transport(transport);
+        // With no tile workers, the renderer keeps its in-process transport:
+        // the tiles' work runs on this instance.
+        #[cfg(feature = "tile-workers")]
+        if ports.length() > 0 {
+            let count = received.clone();
+            let transport = tile_workers::transport(
+                ports.iter().map(JsCast::unchecked_into).collect(),
+                move |_| count.set(count.get() + 1),
+                move |instance, message| {
+                    let _ = on_fatal.call2(&JsValue::NULL, &JsValue::from(instance as u32), &message);
+                },
+            );
+            renderer.set_tile_worker_transport(transport);
+        }
+        #[cfg(not(feature = "tile-workers"))]
+        let _ = (ports, on_fatal);
         let mut map =
             Map::new(MapOptions { size, pixel_ratio: pixel_ratio as f32, ..Default::default() }).map_err(js_error)?;
         map.set_waker(Some(pump::waker()));
