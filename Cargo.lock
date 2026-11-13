@@ -1004,6 +1004,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fast_hilbert"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f551b382f601850b4f57052d064d1c60dca971aeee4ccb40ac103b87f766640"
+
+[[package]]
 name = "fastpfor"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2080,7 +2086,6 @@ dependencies = [
  "mln-rs-math",
  "mln-rs-mtl",
  "mln-rs-nunicode",
- "mln-rs-pmtiles",
  "mln-rs-polylabel",
  "mln-rs-renderer",
  "mln-rs-runtime",
@@ -2470,13 +2475,6 @@ name = "mln-rs-pixelmatch"
 version = "0.0.11"
 
 [[package]]
-name = "mln-rs-pmtiles"
-version = "0.0.11"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "mln-rs-polylabel"
 version = "0.0.11"
 dependencies = [
@@ -2606,6 +2604,7 @@ name = "mln-rs-storage"
 version = "0.0.11"
 dependencies = [
  "block2 0.6.2",
+ "bytes",
  "httpmock",
  "jni",
  "js-sys",
@@ -2614,12 +2613,12 @@ dependencies = [
  "mln-rs-geojson",
  "mln-rs-headless",
  "mln-rs-map",
- "mln-rs-pmtiles",
  "mln-rs-test-server",
  "mln-rs-util",
  "mln-rs-vec-map",
  "objc2 0.6.5",
  "objc2-foundation 0.3.2",
+ "pmtiles",
  "rusqlite",
  "rustls",
  "rustls-platform-verifier",
@@ -3603,6 +3602,19 @@ name = "plain"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
+
+[[package]]
+name = "pmtiles"
+version = "0.28.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61219486719a766150c032f14204184ebcb97e83e79e4be124bc13d2fca29b14"
+dependencies = [
+ "bytes",
+ "fast_hilbert",
+ "flate2",
+ "integer-encoding",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "png"
