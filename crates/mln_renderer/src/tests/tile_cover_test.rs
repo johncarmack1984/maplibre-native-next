@@ -1053,6 +1053,7 @@ mod tile_cover {
     // Unlike GL JS, a tile that is already small on screen is not split further. Around a pole the meridians converge,
     // so a view from the middle latitudes takes the polar rows from the zoom above its own.
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_polar_rows_are_coarser() {
         let mut transform = new_transform();
         set_up_globe(&mut transform, Size::new(1920, 1080), ll(45.0, 10.0), 3.0, 0.0, 0.0);
@@ -1070,6 +1071,7 @@ mod tile_cover {
 
     // A pitched view below the zoom from which GL JS varies the zoom takes the tiles toward the horizon coarser too.
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_low_zoom_pitched_is_coarser_toward_the_horizon() {
         let mut transform = new_transform();
         set_up_globe(&mut transform, Size::new(1920, 1080), ll(75.0, 10.0), 4.0, 60.0, 0.0);
@@ -1081,6 +1083,7 @@ mod tile_cover {
 
     // Tiles at the center of an unpitched view are as large as tiles get, and so are their neighbors near the equator.
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_equator_view_keeps_its_zoom() {
         let mut transform = new_transform();
         set_up_globe(&mut transform, Size::new(1024, 768), ll(0.0, 10.0), 3.0, 0.0, 0.0);
@@ -1091,6 +1094,7 @@ mod tile_cover {
 
     // Whatever zooms the cover mixes, every point of the planet that the view shows is in exactly one of its tiles.
     #[test]
+    #[cfg_attr(not(feature = "globe"), ignore = "needs the globe feature")]
     fn globe_cover_has_no_gaps_or_overlaps() {
         let (width, height) = (1024u32, 768u32);
         let mut mixed = 0;
