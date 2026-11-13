@@ -305,23 +305,26 @@ fn a_platform_pinch_stops_a_notch_ease() {
     rig.pinch(1.0, 0.0, PinchPhase::End);
 }
 
-// Port-only: AppKit sends a trackpad pinch as magnify events, each carrying
-// the change in scale since the last, and the desktop host passes 1 + that as
-// the scale. These come 11 ms apart, from fingers that spread faster, then
-// slow and lift while still moving.
+// Port-only: AppKit sends a trackpad pinch as magnify events whose
+// magnifications add up, and the desktop host passes each event's change in
+// the pinch's scale, 1 plus their sum (MapLibre Native's macOS SDK zooms by
+// `log2(1 + magnification)`). These come 11 ms apart, from fingers that spread
+// faster, then slow and lift while still moving.
 #[test]
 fn a_trackpad_pinch_zooms_by_its_magnification() {
     const MAGNIFICATIONS: [f64; 18] = [
         0.005, 0.01, 0.02, 0.03, 0.035, 0.04, 0.04, 0.04, 0.035, 0.035, 0.03, 0.03, 0.025, 0.02, 0.02, 0.015, 0.015,
         0.01,
     ];
-    let levels = MAGNIFICATIONS.iter().map(|m| 1.0 + m).product::<f64>().log2();
+    let levels = (1.0 + MAGNIFICATIONS.iter().sum::<f64>()).log2();
     let mut rig = Rig::new();
     let zoom = rig.zoom();
     rig.pinch(1.0, 0.0, PinchPhase::Begin);
+    let mut scale = 1.0;
     for magnification in MAGNIFICATIONS {
         rig.now += 11.0;
-        rig.pinch(1.0 + magnification, 0.0, PinchPhase::Update);
+        rig.pinch((scale + magnification) / scale, 0.0, PinchPhase::Update);
+        scale += magnification;
     }
     assert!((rig.zoom() - zoom - levels).abs() < 1e-9, "{} levels for {levels}", rig.zoom() - zoom);
     rig.now += 11.0;

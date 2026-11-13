@@ -168,6 +168,8 @@ struct Open {
     /// macOS phases each apart, and the map gets one pinch of both.
     pinching: bool,
     rotating: bool,
+    /// The trackpad pinch's magnify events so far.
+    magnify: Magnify,
     /// The window's `CAMetalLayer`, made when a backend first asks for it.
     #[cfg(target_os = "macos")]
     metal_layer: Option<MetalLayer>,
@@ -241,6 +243,35 @@ fn egui_over(ctx: &egui::Context, at: egui::Pos2) -> bool {
     crate::ui::over_controls(ctx, at.x, at.y)
 }
 
+/// A trackpad pinch's magnify events: their magnifications add up, and the
+/// pinch zooms the map to a scale of 1 plus their sum, as MapLibre Native's
+/// macOS SDK zooms by `log2(1 + magnification)`. Events that take that to 0
+/// or below don't zoom.
+#[derive(Clone, Copy, Debug)]
+struct Magnify {
+    magnification: f64,
+    /// The scale the map was last zoomed to.
+    scale: f64,
+}
+
+impl Default for Magnify {
+    fn default() -> Self {
+        Magnify { magnification: 0.0, scale: 1.0 }
+    }
+}
+
+impl Magnify {
+    /// How much the event of `delta` scales the map.
+    fn event(&mut self, delta: f64) -> f64 {
+        self.magnification += delta;
+        let scale = 1.0 + self.magnification;
+        if scale <= 0.0 {
+            return 1.0;
+        }
+        scale / std::mem::replace(&mut self.scale, scale)
+    }
+}
+
 /// The recognizer's modifiers for winit's.
 fn modifiers(state: winit::keyboard::ModifiersState) -> Modifiers {
     Modifiers { shift: state.shift_key(), ctrl: state.control_key(), alt: state.alt_key(), meta: state.super_key() }
@@ -309,6 +340,7 @@ impl ApplicationHandler<UserEvent> for Host {
             modifiers: Modifiers::default(),
             pinching: false,
             rotating: false,
+            magnify: Magnify::default(),
             #[cfg(target_os = "macos")]
             metal_layer: None,
         };
@@ -431,10 +463,15 @@ impl ApplicationHandler<UserEvent> for Host {
                 open.input(input);
             }
             // macOS's trackpad magnify and rotate (winit has them nowhere
-            // else). A magnify's delta is AppKit's magnification, the change
-            // in scale since the last event: the event scales by 1 + delta.
-            // winit's rotation turns counterclockwise.
-            WindowEvent::PinchGesture { delta, phase, .. } => open.trackpad(false, 1.0 + delta, 0.0, phase),
+            // else). A magnify's delta is AppKit's magnification, which adds
+            // to the pinch's scale. winit's rotation turns counterclockwise.
+            WindowEvent::PinchGesture { delta, phase, .. } => {
+                if phase == TouchPhase::Started {
+                    open.magnify = Magnify::default();
+                }
+                let scale = open.magnify.event(delta);
+                open.trackpad(false, scale, 0.0, phase);
+            }
             WindowEvent::RotationGesture { delta, phase, .. } => {
                 open.trackpad(true, 1.0, -f64::from(delta), phase);
             }
@@ -476,5 +513,24 @@ impl ApplicationHandler<UserEvent> for Host {
             }
             UserEvent::Ended => event_loop.exit(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn magnify_events_add_up_to_the_pinchs_scale() {
+        let mut pinch = Magnify::default();
+        let mut scale = |deltas: &[f64]| -> f64 { deltas.iter().map(|&delta| pinch.event(delta)).product() };
+        // Twice 0.5 is a scale of 2, not 1.5 squared.
+        assert!((scale(&[0.5, 0.5]) - 2.0).abs() < 1e-12);
+        // And back to where it began.
+        assert!((scale(&[-0.75, -0.25]) - 0.5).abs() < 1e-12);
+        // Pinched past a scale of 0, it stops, and comes back to 1 plus the
+        // magnifications' sum.
+        assert!((scale(&[-0.6, -0.6, 0.1]) - 0.4).abs() < 1e-12);
+        assert!((scale(&[0.3]) - 0.5).abs() < 1e-12);
     }
 }
