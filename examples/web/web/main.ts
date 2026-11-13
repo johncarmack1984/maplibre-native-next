@@ -310,9 +310,6 @@ map.onmessage = ({ data }: MessageEvent<FromMap>) => {
     case 'stats':
       debug.stats(data.stats);
       break;
-    case 'features':
-      if (hovering) debug.features(data.at, data.features);
-      break;
   }
 };
 
@@ -373,25 +370,20 @@ canvas.addEventListener('pointercancel', (e) => send({ kind: 'pointer_cancel', i
 // A wheel event as the recognizer takes it (WebMap::wheel's `kind`):
 // WHEEL_NOTCHES and the notches for a mouse wheel's detents, which it eases,
 // or WHEEL_PIXELS and the pixels for continuous scrolling (a trackpad, a
-// precise wheel), which it applies at once. Positive scrolls down. Browsers
-// don't say which device scrolled, so this reads it from how they report
-// each:
+// precise wheel), which it applies at once. Positive scrolls down. A
+// trackpad pinch comes as pixels with Ctrl, which the recognizer zooms at
+// its pinch rate. Browsers don't say which device scrolled, so this takes
+// pixels as they come but for two cases that would zoom far too little:
 // - Firefox reports wheels in lines, 3 a notch, and pages.
 // - Safari reports a notch as 4.000244140625 px, and a faster turn as a
 //   whole multiple of it (GL JS's test): one notch per multiple.
-// - Chromium's legacy wheelDeltaY is 120 a detent, and -3 × deltaY for
-//   precise scrolling.
-// Untested on real hardware; a misread zooms the same way by a similar
-// amount, with or without the easing.
+// Chromium reports a notch as about 100 px, which zooms by about a notch's
+// amount without the easing.
 const SAFARI_NOTCH = 4.000244140625;
 function wheelDelta(e: WheelEvent): { wheel: number; amount: number } {
   if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) return { wheel: WHEEL_NOTCHES, amount: e.deltaY / 3 };
   if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) return { wheel: WHEEL_NOTCHES, amount: e.deltaY };
   if (e.deltaY !== 0 && e.deltaY % SAFARI_NOTCH === 0) return { wheel: WHEEL_NOTCHES, amount: e.deltaY / SAFARI_NOTCH };
-  const legacy = 'wheelDeltaY' in e ? e.wheelDeltaY : undefined;
-  if (typeof legacy === 'number' && legacy !== 0 && Math.abs(legacy + 3 * e.deltaY) >= 1 && legacy % 120 === 0) {
-    return { wheel: WHEEL_NOTCHES, amount: -legacy / 120 };
-  }
   return { wheel: WHEEL_PIXELS, amount: e.deltaY };
 }
 canvas.addEventListener('wheel', (e) => {
@@ -641,15 +633,13 @@ function setFreeBearing(on: boolean) {
 freeBearingToggle.addEventListener('change', () => setFreeBearing(freeBearingToggle.checked));
 if (params.has('freeBearing')) setFreeBearing(true);
 
-// The debug overlay (debug.ts), off as the page starts unless `?debug`. While
-// it shows, the pointer over the canvas goes to the map's Web Worker, at most
-// once a frame, which answers with the features under it.
+// The debug overlay (debug.ts), off as the page starts unless `?debug`.
 const debugToggle = element('debug-toggle', HTMLInputElement);
 function showDebugPage() {
   debug.page({
     backend: backend === 'webgl2' ? 'WebGL2' : 'WebGPU',
-    width: devicePixels(size[0]),
-    height: devicePixels(size[1]),
+    width: size[0],
+    height: size[1],
     ratio,
   });
 }
@@ -661,34 +651,8 @@ function setDebug(on: boolean) {
   if (on) {
     showDebugPage();
     debug.camera(latestCamera);
-  } else {
-    hover(null);
   }
 }
-let hovering = false;
-let hoverPoint: [number, number] | null = null;
-let hoverQueued = false;
-function hover(point: [number, number] | null) {
-  hovering = point !== null;
-  hoverPoint = point;
-  if (point === null) {
-    debug.hideFeatures();
-    toMap({ type: 'hover', point: null });
-    return;
-  }
-  if (hoverQueued) return;
-  hoverQueued = true;
-  requestAnimationFrame(() => {
-    hoverQueued = false;
-    if (hoverPoint) toMap({ type: 'hover', point: hoverPoint });
-  });
-}
-canvas.addEventListener('pointermove', (e) => {
-  if (debug.shown && e.pointerType !== 'touch') hover([at(e).x, at(e).y]);
-});
-canvas.addEventListener('pointerleave', () => {
-  if (hovering) hover(null);
-});
 debugToggle.addEventListener('change', () => setDebug(debugToggle.checked));
 // D, unless a modifier makes it another shortcut or a field takes the text.
 window.addEventListener('keydown', (e) => {

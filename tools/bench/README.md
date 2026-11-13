@@ -119,6 +119,10 @@ verdicts.
 
 `--fail-on <metric>` makes the comparison fail, after its report, when that metric gets a worse verdict in any case. CI's `bench` workflow compares each pull request with its base this way on lavapipe, where the times are noisy but the allocations count the same as on any machine: it fails on a worse `allocs` or `peak_heap_mib`, and the report is in the job's summary.
 
+## Nightly
+
+Every night, CI's `bench-nightly` workflow compares main with main as it was a day earlier, over every case, on lavapipe. When a case gets a worse verdict, `nightly.py` opens the issue "Nightly benchmarks: main got worse" with the report, or comments on it when it's open already, and a night without one closes it. The workflow runs only in louwers/mln-rs, and its `workflow_dispatch` takes another base.
+
 ## On an Android device
 
 `just bench-android <ndk>` (`android.py`) compares the WebGPU and Vulkan
