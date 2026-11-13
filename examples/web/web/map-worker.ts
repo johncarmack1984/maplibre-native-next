@@ -282,7 +282,7 @@ async function run(
       for (; idle > 0; idle--) post({ type: 'idle', camera });
     }
     if (loaded === null && map.is_fully_loaded()) {
-      loaded = { loadedMs: performance.now() - started, replies: map.received() };
+      loaded = { loadedMs: performance.now() - started, replies: map.received(), workers: ports.length };
       post({ type: 'loaded', loaded });
       report(true);
     }

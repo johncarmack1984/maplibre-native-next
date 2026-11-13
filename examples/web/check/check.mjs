@@ -4,7 +4,8 @@
 // render of the same view (pixelmatch, as the render tests compare). It
 // fails when a frame differs by more than its threshold, when the page, one of
 // its Web Workers (the map's or a tile worker's) or the native runner reports
-// an error, or when a view's tiles got no worker replies. The interaction
+// an error, or when a view's tiles got no worker replies while the map has
+// tile workers. The interaction
 // views drag on the map back and forth before their frame, over a slow
 // network, and also fail when the map fetches URLs again. It also makes the
 // map's wasm instance and a tile worker's panic (the page's `panic`), and
@@ -688,6 +689,9 @@ function png(width, height, rgba) {
 
 const browser = await launch();
 let failures = [];
+// Whether the page started tile workers for a view: not with `--workers 0`,
+// nor on a module built without the `tile-workers` feature.
+let tileWorkers = false;
 try {
   const gpu = await (async () => {
     const session = await open(browser, `${origin}/blank`);
@@ -706,6 +710,10 @@ try {
 
   failures = await compare();
   for (const [where, instance] of [['map', "the map's instance"], ['tile', "a tile worker's instance"]]) {
+    if (where === 'tile' && !tileWorkers) {
+      console.log(`a panic in ${instance}: not checked, the map has no tile workers`);
+      continue;
+    }
     const failure = await checkPanic(browser, views[0], where);
     console.log(`a panic in ${instance}: ${failure ?? 'the page stopped and showed it'}`);
     if (failure) failures.push(`a panic in ${instance}: ${failure}`);
@@ -837,7 +845,8 @@ async function compare() {
     if (errors.length) failures.push(`${view.name}: ${errors.length} errors in the page or its workers`);
     // Every view has tiles, and only their workers reply: the raster and
     // raster-dem tiles' too, in the views that have nothing else.
-    if (stats.replies === 0) failures.push(`${view.name}: no worker replies`);
+    if (stats.workers > 0 && stats.replies === 0) failures.push(`${view.name}: no worker replies`);
+    if (stats.workers > 0) tileWorkers = true;
     if (again && again.count > MAX_REPEATS) {
       const urls = again.urls.slice(0, 3).map(([url, count]) => `${url.replace(origin, '')} ${count} times`);
       failures.push(`${view.name}: ${again.count} fetches again after the ${view.interaction}, of ${urls.join(', ')}`);

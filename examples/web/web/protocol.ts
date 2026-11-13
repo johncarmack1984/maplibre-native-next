@@ -79,6 +79,8 @@ export type ToMap =
 export interface Loaded {
   loadedMs: number;
   replies: number;
+  /** The tile workers the map has: none with `workers=0`, or on a module without them. */
+  workers: number;
 }
 
 export interface Pixels {

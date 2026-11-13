@@ -14,9 +14,15 @@
 
 import type { Bindings, FromTileWorker, StartTileWorker } from './protocol.ts';
 
-/** Runs tile workers in this Web Worker, on a build of the module. */
+/**
+ * Runs tile workers in this Web Worker, on a build of the module. A module
+ * built without the `tile-workers` feature has no `mlnWebServeTileWorker`,
+ * and the page starts no tile workers for it.
+ */
 export function serve(
-  { default: init, mlnWebServeTileWorker, panic_for_check }: Bindings<'mlnWebServeTileWorker' | 'panic_for_check'>,
+  { default: init, mlnWebServeTileWorker, panic_for_check }: Bindings<'panic_for_check'> & {
+    mlnWebServeTileWorker?: (port: MessagePort) => void;
+  },
 ) {
   let port: MessagePort | null = null;
   let dead = false;
@@ -51,6 +57,9 @@ export function serve(
       call(() => panic_for_check(panic));
     }
     const served = data.port;
-    call(() => mlnWebServeTileWorker(served));
+    call(() => {
+      if (!mlnWebServeTileWorker) throw new Error('this build of the module has no tile workers');
+      mlnWebServeTileWorker(served);
+    });
   };
 }
