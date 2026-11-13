@@ -10,14 +10,12 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use mln_gfx::{ConsumerSync, ExportKind, ExportedImage, ExportedRing, FrameTarget, RendererBackend, SyncKind, Window};
+use mln_gfx::{ConsumerSync, ExportKind, ExportedFrame, ExportedRing, FrameTarget, RendererBackend, SyncKind, Window};
 use mln_util::error::Error;
 use mln_util::image::PremultipliedImage;
 use mln_util::size::Size;
 
-use super::target::{
-    BorrowedRing, Device, DeviceOptions, FrameTexture, FrameTextureKind, RingKind, Surface, SurfaceKind,
-};
+use super::target::{BorrowedRing, Device, DeviceOptions, FrameTexture, RingKind, Surface, SurfaceKind};
 
 /// Frames read back: an offscreen target.
 trait Offscreen: FrameTarget {
@@ -134,7 +132,7 @@ trait Exported: FrameTarget {
     fn discard(&self, slot: usize);
     fn resize(&self, size: Size, held: &[usize]) -> Result<bool, Error>;
     fn size(&self) -> Size;
-    fn image(&self, slot: usize) -> Option<(Size, ExportedImage)>;
+    fn image(&self, slot: usize) -> Option<ExportedFrame>;
 }
 
 macro_rules! exported {
@@ -155,7 +153,7 @@ macro_rules! exported {
             fn size(&self) -> Size {
                 <$type>::size(self)
             }
-            fn image(&self, slot: usize) -> Option<(Size, ExportedImage)> {
+            fn image(&self, slot: usize) -> Option<ExportedFrame> {
                 <$type>::image(self, slot)
             }
         }
@@ -680,9 +678,7 @@ impl LocalTarget {
     #[must_use]
     pub fn exported_texture(&self, slot: usize) -> Option<FrameTexture> {
         match &self.frames {
-            Frames::Exported(target) => {
-                target.image(slot).map(|(size, image)| FrameTexture { size, kind: FrameTextureKind::Exported(image) })
-            }
+            Frames::Exported(target) => target.image(slot).map(|frame| FrameTexture::exported(frame, &self.device)),
             _ => None,
         }
     }

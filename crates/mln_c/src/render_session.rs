@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 
 use ::mln_runtime::{
-    AttachOptions, DemandMode, Driver, DriverWork, FrameDemand, FrameDisposition, FrameResult, LogicalExtent,
-    RenderSession, RenderSessionState, RenderTarget,
+    AttachOptions, ClipDepthRange, DemandMode, Driver, DriverWork, FrameDemand, FrameDisposition, FrameProjection,
+    FrameResult, LogicalExtent, RenderSession, RenderSessionState, RenderTarget,
 };
 use mln_util::ErrorKind;
 use mln_util::size::Size;
@@ -21,8 +21,9 @@ use crate::completion::{self, CompletionValue, Generations, PendingCompletion};
 use crate::error::Error;
 use crate::frame_pacer::{self, Pacer, SessionPacing};
 use crate::generated::types::{
-    MLN_FRAME_DEMAND_FORCE, MLN_FRAME_DEMAND_WAIT_FOR_UPDATE, MLN_GPU_SYNC_CPU_COMPLETE,
-    MLN_GPU_SYNC_KIND_FLAG_CPU_COMPLETE, MLN_GPU_SYNC_KIND_FLAG_D3D12_FENCE, MLN_GPU_SYNC_KIND_FLAG_METAL_SHARED_EVENT,
+    MLN_CLIP_DEPTH_RANGE_NEGATIVE_ONE_TO_ONE, MLN_CLIP_DEPTH_RANGE_ZERO_TO_ONE, MLN_FRAME_DEMAND_FORCE,
+    MLN_FRAME_DEMAND_WAIT_FOR_UPDATE, MLN_GPU_SYNC_CPU_COMPLETE, MLN_GPU_SYNC_KIND_FLAG_CPU_COMPLETE,
+    MLN_GPU_SYNC_KIND_FLAG_D3D12_FENCE, MLN_GPU_SYNC_KIND_FLAG_METAL_SHARED_EVENT,
     MLN_GPU_SYNC_KIND_FLAG_OPEN_GL_FENCE, MLN_GPU_SYNC_KIND_FLAG_QUEUE_ORDER, MLN_GPU_SYNC_KIND_FLAG_SYNC_FD,
     MLN_GPU_SYNC_KIND_FLAG_VULKAN_TIMELINE_SEMAPHORE, MLN_RENDER_ABANDON_DISPOSITION_CLEAN,
     MLN_RENDER_ABANDON_DISPOSITION_QUARANTINED, MLN_RENDER_DRIVER_CALLER_GRAPHICS_THREAD,
@@ -32,9 +33,10 @@ use crate::generated::types::{
     MLN_RENDER_SESSION_STATE_ABANDONED, MLN_RENDER_SESSION_STATE_ATTACHED, MLN_RENDER_SESSION_STATE_ATTACHING,
     MLN_RENDER_SESSION_STATE_DETACHED, MLN_RENDER_SESSION_STATE_DETACHING, MLN_RENDER_SESSION_STATE_FAILED,
     MLN_STATUS_INVALID_STATE, MLN_STATUS_NATIVE_ERROR, MLN_STATUS_OK, MLN_STATUS_TARGET_LOST, mln_completion,
-    mln_diagnostic, mln_frame_demand, mln_frame_pacer, mln_logical_extent, mln_map_view, mln_render_abandon_result,
-    mln_render_frame_batch, mln_render_frame_batch_view, mln_render_frame_result, mln_render_session,
-    mln_render_session_attach_options, mln_render_session_capabilities, mln_render_session_snapshot, mln_status,
+    mln_diagnostic, mln_frame_demand, mln_frame_pacer, mln_frame_projection, mln_logical_extent, mln_map_view,
+    mln_mat4, mln_render_abandon_result, mln_render_frame_batch, mln_render_frame_batch_view, mln_render_frame_result,
+    mln_render_session, mln_render_session_attach_options, mln_render_session_capabilities,
+    mln_render_session_snapshot, mln_status, mln_vec4,
 };
 use crate::handles::{self, HandleKind, HandleTable};
 use crate::map::{self, MapObject};
@@ -114,6 +116,7 @@ pub(crate) struct AttachRequest {
     has_redraw_wake: bool,
     driver_work_wake: Arc<Wake>,
     producer_sync_kinds: ::mln_runtime::SyncKinds,
+    pub(crate) keep_depth: bool,
 }
 
 /// Checks a caller's attach options.
@@ -139,6 +142,7 @@ pub(crate) unsafe fn attach_options(options: *const mln_render_session_attach_op
         has_redraw_wake: options.redraw_wake.callback.is_some(),
         driver_work_wake: Arc::new(Wake::new(&options.driver_work_wake)?),
         producer_sync_kinds: crate::gpu_device::sync_kinds(options.producer_sync_kinds),
+        keep_depth: options.keep_depth,
     })
 }
 
@@ -445,6 +449,30 @@ pub(crate) fn frame_result(result: &FrameResult, initial_scale_factor: f64) -> m
         needs_repaint: result.needs_repaint,
         view,
         mode: events::render_mode(result.mode),
+        frame_projection: result.projection.as_ref().map_or_else(
+            // SAFETY: zeros are a valid `mln_frame_projection`, as a result
+            // that rendered nothing has.
+            || unsafe { core::mem::zeroed::<mln_frame_projection>() },
+            frame_projection,
+        ),
+    }
+}
+
+fn frame_projection(projection: &FrameProjection) -> mln_frame_projection {
+    let column = |index: usize| {
+        let [x, y, z, w] = [0, 1, 2, 3].map(|row| projection.matrix[4 * index + row]);
+        mln_vec4 { x, y, z, w }
+    };
+    mln_frame_projection {
+        matrix: mln_mat4 { x: column(0), y: column(1), z: column(2), w: column(3) },
+        clip_depth_range: match projection.clip_depth_range {
+            ClipDepthRange::ZeroToOne => MLN_CLIP_DEPTH_RANGE_ZERO_TO_ONE,
+            ClipDepthRange::NegativeOneToOne => MLN_CLIP_DEPTH_RANGE_NEGATIVE_ONE_TO_ONE,
+        },
+        near_distance: projection.near_distance,
+        far_distance: projection.far_distance,
+        far_depth: projection.far_depth,
+        globe: projection.globe,
     }
 }
 
@@ -504,7 +532,9 @@ pub(crate) fn release_batch(batch: mln_render_frame_batch) -> Result<(), Error> 
 // MARK: - Work
 
 /// Sends a session operation, whose completion `value` gives the result of,
-/// with the generations of the map's latest snapshot.
+/// with the generations of the map's latest snapshot. The session's driver
+/// delivers the completion inside its driver call, even when the operation
+/// runs before this returns.
 ///
 /// # Safety
 ///
@@ -518,15 +548,16 @@ pub(crate) unsafe fn operation<T: Send + 'static, V: CompletionValue>(
     let object = resolve(session)?;
     // SAFETY: the caller's contract.
     let pending = unsafe { PendingCompletion::new(completion) }?;
-    let sent = send(&object.session)?;
     let map = object.map.clone();
-    completion::forward(sent, Some(pending.accept()), move |result| {
+    // The callback runs once when the send succeeds, and is dropped unrun,
+    // with the completion unaccepted, when it fails.
+    object.session.send_then(send, move |result| {
         let generations = map.snapshot().map_or(Generations::default(), |snapshot| Generations {
             snapshot: snapshot.generation,
             render_update: snapshot.update_generation,
         });
-        (result.map(value).map_err(Error::from), generations)
-    });
+        pending.accept().complete(result.map(value).map_err(Error::from), generations);
+    })?;
     Ok(())
 }
 
@@ -1145,11 +1176,13 @@ pub(crate) mod tests {
             needs_repaint: false,
             view: None,
             mode: ::mln_map::RenderMode::Partial,
+            projection: None,
         };
         let converted = frame_result(&result, 2.0);
         let fields = (converted.disposition, converted.token, converted.map_update_generation);
         assert_eq!(fields, (MLN_RENDER_RESULT_SUPERSEDED, 3, 4));
         assert_eq!(converted.view.size, 0);
+        assert_eq!(converted.frame_projection.clip_depth_range, 0);
     }
 }
 

@@ -82,6 +82,7 @@ fn run(task: impl FnOnce(&mut Worker, &mut Outbox)) {
         }
         task(worker, &mut outbox);
     }
+    shared.wait_for_senders();
     outbox.deliver();
 }
 
@@ -142,6 +143,7 @@ pub(crate) fn build(shared: &Arc<SessionShared>, slot: &Slot) {
     let worker = Worker::new(shared.clone(), *init, &mut outbox);
     *slot.borrow_mut() = Some(worker);
     drop(gate);
+    shared.wait_for_senders();
     outbox.deliver();
 }
 
@@ -762,6 +764,7 @@ impl Worker {
             self.publish(&result, outbox);
             return self.forward(events);
         }
+        let projection = gfx.renderer.frame_projection();
         self.rendered_update = update.generation;
         self.rendered_generation = self.generation();
         self.sources = Some(update.parameters.sources.clone());
@@ -793,6 +796,7 @@ impl Worker {
                     needs_repaint: report.needs_repaint,
                     view: Some(MapView::from_state(&update.parameters.transform_state, self.scale_factor)),
                     mode: report.mode,
+                    projection,
                 }
             }
             None => FrameResult::unrendered(token, FrameDisposition::NoUpdate, update.generation),

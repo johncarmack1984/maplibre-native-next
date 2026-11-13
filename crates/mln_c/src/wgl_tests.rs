@@ -426,6 +426,8 @@ fn a_wrapped_wgl_context_renders_into_host_textures_and_surfaces() {
         textures: borrowed.as_ptr(),
         texture_count: borrowed.len(),
         target: GL_TEXTURE_2D,
+        depth_textures: core::ptr::null(),
+        depth_texture_count: 0,
     };
     let target = mln_render_target {
         kind: MLN_RENDER_TARGET_KIND_OPEN_GL_BORROWED_TEXTURES,
