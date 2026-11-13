@@ -2082,7 +2082,6 @@ dependencies = [
  "mln-rs-nunicode",
  "mln-rs-pmtiles",
  "mln-rs-polylabel",
- "mln-rs-rapidjson",
  "mln-rs-renderer",
  "mln-rs-runtime",
  "mln-rs-shelf-pack",
@@ -2150,7 +2149,6 @@ dependencies = [
  "mln-rs-map",
  "mln-rs-map-types",
  "mln-rs-mtl",
- "mln-rs-rapidjson",
  "mln-rs-runtime",
  "mln-rs-storage",
  "mln-rs-style",
@@ -2261,7 +2259,6 @@ dependencies = [
  "mln-rs-geometry",
  "mln-rs-math",
  "mln-rs-nunicode",
- "mln-rs-rapidjson",
  "mln-rs-style-types",
  "mln-rs-text",
  "mln-rs-tile",
@@ -2303,7 +2300,6 @@ version = "0.0.11"
 dependencies = [
  "mln-rs-feature",
  "mln-rs-geometry",
- "mln-rs-rapidjson",
  "serde_json",
  "thiserror 2.0.21",
 ]
@@ -2490,10 +2486,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mln-rs-rapidjson"
-version = "0.0.11"
-
-[[package]]
 name = "mln-rs-render-test"
 version = "0.0.11"
 dependencies = [
@@ -2624,7 +2616,6 @@ dependencies = [
  "mln-rs-headless",
  "mln-rs-map",
  "mln-rs-pmtiles",
- "mln-rs-rapidjson",
  "mln-rs-test-server",
  "mln-rs-util",
  "mln-rs-vec-map",
@@ -2676,7 +2667,6 @@ dependencies = [
  "mln-rs-image",
  "mln-rs-map-types",
  "mln-rs-math",
- "mln-rs-rapidjson",
  "mln-rs-sprite",
  "mln-rs-storage",
  "mln-rs-style-types",
@@ -2707,7 +2697,6 @@ version = "0.0.11"
 dependencies = [
  "mln-rs-feature",
  "mln-rs-math",
- "mln-rs-rapidjson",
  "mln-rs-util",
  "mln-rs-vec-map",
  "serde",
@@ -2793,7 +2782,6 @@ dependencies = [
  "mln-rs-feature",
  "mln-rs-geometry",
  "mln-rs-math",
- "mln-rs-rapidjson",
  "mln-rs-style",
  "mln-rs-style-types",
  "mln-rs-tile-id",

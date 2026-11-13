@@ -80,7 +80,6 @@ nunicode = { package = "mln-rs-nunicode", path = "vendor/nunicode", version = "=
 pixelmatch = { package = "mln-rs-pixelmatch", path = "vendor/pixelmatch", version = "=0.0.11" }
 pmtiles = { package = "mln-rs-pmtiles", path = "vendor/pmtiles", version = "=0.0.11" }
 polylabel = { package = "mln-rs-polylabel", path = "vendor/polylabel", version = "=0.0.11" }
-rapidjson = { package = "mln-rs-rapidjson", path = "vendor/rapidjson", version = "=0.0.11" }
 render_test = { package = "mln-rs-render-test", path = "tools/render-test", version = "=0.0.11" }
 shelf_pack = { package = "mln-rs-shelf-pack", path = "vendor/shelf-pack", version = "=0.0.11" }
 style_codegen = { package = "mln-rs-style-codegen", path = "tools/style-codegen", version = "=0.0.11" }
@@ -153,10 +152,10 @@ regex = { version = "1.13.1" }
 serde = { version = "1.0.229", features = ["derive", "rc"] }
 # The same engine as the C++ core's vendored SQLite, built from source like it.
 rusqlite = { version = "0.41.1", features = ["bundled"] }
-# preserve_order: rapidjson iterates object members in document order, and
-# the C++ relies on that (style parser, expression error order).
-# float_roundtrip: correctly rounded float parsing, like rapidjson's full
-# precision parse (the default parser can be off by an ULP).
+# preserve_order: objects keep their members in document order, which the
+# style parser and the order of expression errors rely on.
+# float_roundtrip: correctly rounded float parsing (the default parser can be
+# off by an ULP).
 serde_json = { version = "1.0.154", features = ["float_roundtrip", "preserve_order"] }
 skrifa = { version = "0.49.0" }
 # tools/render-test's --shuffle order for a --seed. tempfile already builds it.
@@ -388,7 +387,6 @@ mln_webgpu.workspace = true
 nunicode.workspace = true
 pmtiles.workspace = true
 polylabel.workspace = true
-rapidjson.workspace = true
 shelf_pack.workspace = true
 supercluster.workspace = true
 wagyu.workspace = true
