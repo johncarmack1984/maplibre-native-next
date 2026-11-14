@@ -96,7 +96,7 @@ impl<T: CollectionElement + ?Sized> CollectionBase<T> {
         self.wrappers.clear();
     }
 
-   #[must_use]
+    #[must_use]
     pub(crate) fn index(&self, id: &str) -> usize {
         self.wrappers.iter().position(|e| T::impl_id(&e.base_impl()) == id).unwrap_or(self.wrappers.len())
     }
