@@ -14,12 +14,12 @@ use mln_style::PropertyEvaluationParameters;
 use mln_style::expression::{EvaluationContext, GlobalStateMap};
 use mln_style::layer_properties::LayerProperties;
 use mln_style::layers::symbol_layer_properties::{
-    IconAllowOverlap, IconAnchor, IconIgnorePlacement, IconImage, IconOffset, IconPadding, IconPitchAlignment,
-    IconRotate, IconRotationAlignment, IconSize, IconTextFit, IconTextFitPadding, SymbolLayoutProperties,
-    SymbolPlacement, SymbolSortKey, SymbolSpacing, SymbolZOrder, TextAllowOverlap, TextAnchor, TextField, TextFont,
-    TextIgnorePlacement, TextJustify, TextLetterSpacing, TextLineHeight, TextMaxAngle, TextMaxWidth, TextOffset,
-    TextPadding, TextPitchAlignment, TextRadialOffset, TextRotate, TextRotationAlignment, TextSize, TextTransform,
-    TextVariableAnchor, TextVariableAnchorOffset, TextWritingMode,
+    IconAnchor, IconIgnorePlacement, IconImage, IconOffset, IconPadding, IconPitchAlignment, IconRotate,
+    IconRotationAlignment, IconSize, IconTextFit, IconTextFitPadding, SymbolLayoutProperties, SymbolPlacement,
+    SymbolSortKey, SymbolSpacing, SymbolZOrder, TextAnchor, TextField, TextFont, TextIgnorePlacement, TextJustify,
+    TextLetterSpacing, TextLineHeight, TextMaxAngle, TextMaxWidth, TextOffset, TextPadding, TextPitchAlignment,
+    TextRadialOffset, TextRotate, TextRotationAlignment, TextSize, TextTransform, TextVariableAnchor,
+    TextVariableAnchorOffset, TextWritingMode,
 };
 use mln_style::properties::Property;
 use mln_style::property_value::PropertyValue;
@@ -56,6 +56,7 @@ use crate::layout::merge_lines::merge_lines;
 use crate::layout::symbol_feature::SymbolFeature;
 use crate::layout::symbol_instance::{ShapedTextOrientations, SymbolContent, SymbolInstance, SymbolInstanceSharedData};
 use crate::render_layer::LayerRenderData;
+use crate::text::collision_index::OverlapMode;
 use crate::text::get_anchors::{get_anchors, get_center_anchor};
 use crate::text::glyph_manager::HBShapeResults;
 use crate::text::quads::{SymbolQuad, SymbolQuads};
@@ -236,8 +237,6 @@ pub(crate) struct SymbolLayout {
     canonical_id: CanonicalTileID,
     mode: MapMode,
     pixel_ratio: f32,
-    #[allow(dead_code)]
-    tile_size: u32,
     tile_pixel_ratio: f32,
 
     icons_need_linear: bool,
@@ -302,7 +301,6 @@ impl SymbolLayout {
             canonical_id: parameters.tile_id.canonical,
             mode: parameters.mode,
             pixel_ratio: parameters.pixel_ratio,
-            tile_size,
             tile_pixel_ratio,
             icons_need_linear: false,
             sort_features_by_y: false,
@@ -343,8 +341,8 @@ impl SymbolLayout {
         let z_order_by_viewport_y = symbol_z_order == SymbolZOrderType::ViewportY
             || (symbol_z_order == SymbolZOrderType::Auto && !this.sort_features_by_key);
         this.sort_features_by_y = z_order_by_viewport_y
-            && (*layout.get::<TextAllowOverlap>()
-                || *layout.get::<IconAllowOverlap>()
+            && (OverlapMode::text(&layout) != OverlapMode::Never
+                || OverlapMode::icon(&layout) != OverlapMode::Never
                 || *layout.get::<TextIgnorePlacement>()
                 || *layout.get::<IconIgnorePlacement>());
         let sort_features = this.sort_features_by_key && !layout.get::<SymbolSortKey>().is_constant();
@@ -673,7 +671,10 @@ impl SymbolLayout {
         Some(VariableAnchorOffsetCollection::new(anchor_offset_pairs))
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one feature's shaped text and icon, its images and its evaluated text and icon layout"
+    )]
     fn add_feature(
         &mut self,
         layout_feature_index: usize,
@@ -729,6 +730,7 @@ impl SymbolLayout {
             sort_index: self.symbol_instances.len(),
             bucket_instance_id: 0,
             collision_group_id: 0,
+            overlap_mode: OverlapMode::Never,
         };
 
         let icon_text_fit = *evaluated_layout_properties.get::<IconTextFit>();
@@ -1007,7 +1009,10 @@ impl SymbolLayout {
 
     /// Adds symbol quads to the bucket and returns the formatted section index
     /// of the last added quad.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the bucket and its state, the symbol and feature, and the quads of one writing mode"
+    )]
     fn add_symbol_glyph_quads(
         &self,
         bucket: &SymbolBucket,
@@ -1409,9 +1414,10 @@ impl Layout for SymbolLayout {
         self.need_finalize_symbols_val = false;
     }
 
-    // C++'s `if (ft.formattedText && ...)`: the text is borrowed where it is
-    // used, as `feature` is also passed on in between.
-    #[allow(clippy::unnecessary_unwrap)]
+    #[expect(
+        clippy::unnecessary_unwrap,
+        reason = "the text is borrowed where it is used, as `feature` is also passed on in between"
+    )]
     fn prepare_symbols(
         &mut self,
         glyph_map: &GlyphMap,

@@ -12,18 +12,20 @@
 // carry `panic`, a message to panic with once the instance starts
 // (`panic_for_check`), for check/check.mjs.
 
-import type { Bindings, FromTileWorker, StartTileWorker } from './protocol.ts';
+import type { Bindings, FromTileWorker, StartTileWorker } from "./protocol.ts";
 
 /**
  * Runs tile workers in this Web Worker, on a build of the module. A module
  * built without the `tile-workers` feature has no `mlnWebServeTileWorker`,
  * and the page starts no tile workers for it.
  */
-export function serve(
-  { default: init, mlnWebServeTileWorker, panic_for_check }: Bindings<'panic_for_check'> & {
-    mlnWebServeTileWorker?: (port: MessagePort) => void;
-  },
-) {
+export function serve({
+  default: init,
+  mlnWebServeTileWorker,
+  panic_for_check,
+}: Bindings<"panic_for_check"> & {
+  mlnWebServeTileWorker?: (port: MessagePort) => void;
+}) {
   let port: MessagePort | null = null;
   let dead = false;
 
@@ -45,8 +47,8 @@ export function serve(
 
   // What throws outside `call`: the instance's work between requests, a
   // reply's image decode, the instance's start.
-  addEventListener('error', (event) => fatal(event.error ?? event.message));
-  addEventListener('unhandledrejection', (event) => fatal(event.reason));
+  addEventListener("error", (event) => fatal(event.error ?? event.message));
+  addEventListener("unhandledrejection", (event) => fatal(event.reason));
 
   // The port keeps the requests that arrive before the instance serves it.
   onmessage = async ({ data }: MessageEvent<StartTileWorker>) => {
@@ -58,7 +60,8 @@ export function serve(
     }
     const served = data.port;
     call(() => {
-      if (!mlnWebServeTileWorker) throw new Error('this build of the module has no tile workers');
+      if (!mlnWebServeTileWorker)
+        throw new Error("this build of the module has no tile workers");
       mlnWebServeTileWorker(served);
     });
   };
