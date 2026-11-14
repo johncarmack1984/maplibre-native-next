@@ -420,3 +420,29 @@ fn display_p3_outside_srgb_keeps_its_unclipped_channels() {
     // Halfway to white from (-0.511_605, 1.018_266, -0.310_675), not from (0, 1, 0).
     expect_color(Color::interpolate(&green, &Color::white(), 0.5, ColorSpace::Rgb), 0.244_197_5, 1.0, 0.344_662_7, 1.0);
 }
+
+// Port-only: a huge Display P3 component converts as 1e6, which keeps the
+// color finite.
+#[test]
+fn display_p3_caps_a_huge_component() {
+    for (huge, capped) in [
+        ("color(display-p3 1e200 0 0)", "color(display-p3 1e6 0 0)"),
+        ("color(display-p3 -1e200 0 0)", "color(display-p3 -1e6 0 0)"),
+    ] {
+        let (huge, capped) = (Color::parse(huge).unwrap(), Color::parse(capped).unwrap());
+        assert_eq!(huge, capped);
+        assert!(huge.unclipped.unwrap().iter().all(|c| c.is_finite()));
+    }
+    expect_color(Color::parse("color(display-p3 1e200 0 0)").unwrap(), 1.0, 0.0, 0.0, 1.0);
+}
+
+// Port-only: HCL and LAB interpolation keep a lightness below 0, so halfway
+// from a color darker than black to as light a gray is black.
+#[test]
+fn hcl_and_lab_keep_a_lightness_below_zero() {
+    let darker_than_black = Color::parse("color(display-p3 -0.1 -0.1 -0.1)").unwrap();
+    let dark_gray = Color::parse("color(display-p3 0.1 0.1 0.1)").unwrap();
+    for space in [ColorSpace::Hcl, ColorSpace::Lab] {
+        expect_color(Color::interpolate(&darker_than_black, &dark_gray, 0.5, space), 0.0, 0.0, 0.0, 1.0);
+    }
+}

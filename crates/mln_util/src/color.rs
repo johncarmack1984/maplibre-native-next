@@ -7,7 +7,6 @@
 
 use std::f32::consts::{PI, TAU};
 
-use csscolorparser::Color as CssColor;
 use feature::{Value, ValueObject};
 use serde::{Deserialize, Serialize};
 
@@ -47,30 +46,11 @@ pub struct Color {
 const HCL_POWERLESS_CHROMA: f32 = 0.000_05;
 const OKLCH_POWERLESS_CHROMA: f64 = 0.000_004;
 
-/// The straight color, unclipped.
-fn straight(color: &Color) -> CssColor {
-    let [r, g, b, a] = color.straight_rgba();
-    CssColor::new(r, g, b, a)
-}
-
-/// Clips each channel to 0..1, as browsers draw a color outside sRGB, and
-/// premultiplies, keeping the unclipped channels.
-fn premultiplied(color: &CssColor) -> Color {
-    let CssColor { r, g, b, a } = color.clamp();
-    let mut clipped = Color::new(r * a, g * a, b * a, a);
-    if [color.r, color.g, color.b] != [r, g, b] {
-        clipped.unclipped = Some([color.r, color.g, color.b]);
-    }
-    clipped
-}
-
 // Conversions between sRGB, Oklab and Display P3, as the style spec's
 // color_spaces.ts makes them: CSS Color 4's matrices
 // (https://drafts.csswg.org/css-color-4/#color-conversion-code) in f64, and
 // sRGB's transfer function odd about 0, so a color outside sRGB converts
-// with its channels outside 0..1, and back. (Lab and HCL still convert with
-// csscolorparser, whose transfer function is linear below 0.04045, so a
-// channel below -0.04045 converts a little differently there.)
+// with its channels outside 0..1, and back.
 
 type Vector3 = [f64; 3];
 type Matrix3 = [Vector3; 3];
@@ -114,6 +94,8 @@ const LINEAR_DISPLAY_P3_TO_XYZ: Matrix3 = [
 /// Past this chroma an Oklch color clips to the same sRGB color: the style
 /// spec's bound, which keeps the conversion finite.
 const MAX_CHROMA: f64 = 1e6;
+/// The same bound on a Display P3 component.
+const MAX_DISPLAY_P3_COMPONENT: f64 = 1e6;
 
 fn multiply(m: &Matrix3, [x, y, z]: Vector3) -> Vector3 {
     [
@@ -158,7 +140,66 @@ fn oklab_via_oklch_to_srgb(l: f64, a: f64, b: f64) -> Vector3 {
 }
 
 fn display_p3_to_srgb(rgb: Vector3) -> Vector3 {
-    multiply(&XYZ_TO_LINEAR_SRGB, multiply(&LINEAR_DISPLAY_P3_TO_XYZ, rgb.map(srgb_to_linear))).map(linear_to_srgb)
+    let linear = rgb.map(|c| srgb_to_linear(c.clamp(-MAX_DISPLAY_P3_COMPONENT, MAX_DISPLAY_P3_COMPONENT)));
+    multiply(&XYZ_TO_LINEAR_SRGB, multiply(&LINEAR_DISPLAY_P3_TO_XYZ, linear)).map(linear_to_srgb)
+}
+
+// CIE Lab (D50) and its polar form, HCL, as the style spec converts them
+// (https://observablehq.com/@mbostock/lab-and-rgb), with sRGB's transfer
+// function odd about 0 both ways.
+const LAB_XN: f64 = 0.964_22;
+const LAB_YN: f64 = 1.0;
+const LAB_ZN: f64 = 0.825_21;
+const LAB_T0: f64 = 4.0 / 29.0;
+const LAB_T1: f64 = 6.0 / 29.0;
+const LAB_T2: f64 = 3.0 * LAB_T1 * LAB_T1;
+const LAB_T3: f64 = LAB_T1 * LAB_T1 * LAB_T1;
+
+fn xyz_to_lab(t: f64) -> f64 {
+    if t > LAB_T3 { t.powf(1.0 / 3.0) } else { t / LAB_T2 + LAB_T0 }
+}
+
+fn lab_to_xyz(t: f64) -> f64 {
+    if t > LAB_T1 { t * t * t } else { LAB_T2 * (t - LAB_T0) }
+}
+
+/// The style spec's own encoding back to sRGB, whose linear part ends at
+/// 0.00304.
+fn xyz_to_srgb(x: f64) -> f64 {
+    let abs = x.abs();
+    if abs <= 0.003_04 { 12.92 * x } else { (1.055 * abs.powf(1.0 / 2.4) - 0.055).copysign(x) }
+}
+
+fn srgb_to_lab(rgb: Vector3) -> Vector3 {
+    let [r, g, b] = rgb.map(srgb_to_linear);
+    let y = xyz_to_lab((0.222_504_5 * r + 0.716_878_6 * g + 0.060_616_9 * b) / LAB_YN);
+    let (x, z) = if r == g && g == b {
+        (y, y)
+    } else {
+        (
+            xyz_to_lab((0.436_074_7 * r + 0.385_064_9 * g + 0.143_080_4 * b) / LAB_XN),
+            xyz_to_lab((0.013_932_2 * r + 0.097_104_5 * g + 0.714_173_3 * b) / LAB_ZN),
+        )
+    };
+    [116.0 * y - 16.0, 500.0 * (x - y), 200.0 * (y - z)]
+}
+
+fn lab_to_srgb([l, a, b]: Vector3) -> Vector3 {
+    let y = (l + 16.0) / 116.0;
+    let x = if a.is_nan() { y } else { y + a / 500.0 };
+    let z = if b.is_nan() { y } else { y - b / 200.0 };
+    let (x, y, z) = (LAB_XN * lab_to_xyz(x), LAB_YN * lab_to_xyz(y), LAB_ZN * lab_to_xyz(z));
+    [
+        xyz_to_srgb(3.133_856_1 * x - 1.616_866_7 * y - 0.490_614_6 * z),
+        xyz_to_srgb(-0.978_768_4 * x + 1.916_141_5 * y + 0.033_454 * z),
+        xyz_to_srgb(0.071_945_3 * x - 0.228_991_4 * y + 1.405_242_7 * z),
+    ]
+}
+
+/// HCL with its hue in radians, a missing (NaN) hue converting as 0.
+fn hcl_to_srgb(l: f64, c: f64, h: f64) -> Vector3 {
+    let hue = if h.is_nan() { 0.0 } else { h };
+    lab_to_srgb([l, hue.cos() * c, hue.sin() * c])
 }
 
 // CSS Color 4's oklch(), oklab() and color(display-p3 ...), read as the style
@@ -274,16 +315,23 @@ fn hue_difference(from: f32, to: f32) -> f32 {
     }
 }
 
-/// A missing hue converts as 0.
-fn hue_or_zero(hue: f32) -> f32 {
-    if hue.is_nan() { 0.0 } else { hue }
+/// `[l, c, h, alpha]` in the polar form of CIE Lab, the hue in radians, NaN
+/// when it's missing. A color darker than black keeps its lightness below 0.
+fn to_hcl(color: &Color) -> [f32; 4] {
+    let [r, g, b, alpha] = color.straight_rgba();
+    let [l, a, b] = srgb_to_lab([r, g, b].map(f64::from));
+    let c = (a * a + b * b).sqrt() as f32;
+    [l as f32, c, if c < HCL_POWERLESS_CHROMA { f32::NAN } else { b.atan2(a) as f32 }, alpha]
 }
 
-/// `[l, c, h, alpha]` in the polar form of CIE Lab, with a NaN hue when it's
-/// missing.
-fn to_hcl(color: &Color) -> [f32; 4] {
-    let [l, c, h, alpha] = straight(color).to_lcha();
-    [l.max(0.0), c, if c < HCL_POWERLESS_CHROMA { f32::NAN } else { h }, alpha]
+/// The style spec's LAB interpolation: lightness, a, b and alpha, straight.
+fn interpolate_lab(from: &Color, to: &Color, t: f64) -> Color {
+    let [r1, g1, b1, alpha1] = from.straight_rgba().map(f64::from);
+    let [r2, g2, b2, alpha2] = to.straight_rgba().map(f64::from);
+    let (lab1, lab2) = (srgb_to_lab([r1, g1, b1]), srgb_to_lab([r2, g2, b2]));
+    let mix = |a: f64, b: f64| a + t * (b - a);
+    let rgb = lab_to_srgb([mix(lab1[0], lab2[0]), mix(lab1[1], lab2[1]), mix(lab1[2], lab2[2])]);
+    Color::from_straight(rgb, mix(alpha1, alpha2))
 }
 
 /// `[l, a, b, alpha]` in Oklab.
@@ -328,7 +376,8 @@ fn interpolate_hcl(from: &Color, to: &Color, t: f32) -> Color {
         }
         (true, true) => f32::NAN,
     };
-    premultiplied(&CssColor::from_lcha(lerp(l1, l2, t), chroma, hue_or_zero(hue), lerp(alpha1, alpha2, t)))
+    let rgb = hcl_to_srgb(f64::from(lerp(l1, l2, t)), f64::from(chroma), f64::from(hue));
+    Color::from_straight(rgb, f64::from(lerp(alpha1, alpha2, t)))
 }
 
 // https://drafts.csswg.org/css-color-4/#interpolation: a missing hue takes the
@@ -473,7 +522,7 @@ impl Color {
                 interpolate_unclipped_rgb(from, to, t)
             }
             ColorSpace::Rgb => util_interpolate(from, to, t),
-            ColorSpace::Lab => premultiplied(&straight(from).interpolate_lab(&straight(to), t as f32)),
+            ColorSpace::Lab => interpolate_lab(from, to, t),
             ColorSpace::Hcl => interpolate_hcl(from, to, t as f32),
             ColorSpace::Oklch => interpolate_oklch(from, to, t as f32),
             ColorSpace::Oklab => interpolate_oklab(from, to, t as f32),
