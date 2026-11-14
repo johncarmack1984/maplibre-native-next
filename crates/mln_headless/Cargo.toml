@@ -21,13 +21,13 @@ doctest = false
 default = ["globe"]
 # The globe (crates/mln_map_types/Cargo.toml), which the map tests draw.
 globe = [
-    "mln_map/globe",
-    "mln_map_types/globe",
-    "mln_renderer/globe",
-    "mln_runtime/globe",
-    "mln_gl/globe",
-    "mln_vulkan/globe",
-    "mln_webgpu/globe",
+  "mln_map/globe",
+  "mln_map_types/globe",
+  "mln_renderer/globe",
+  "mln_runtime/globe",
+  "mln_gl/globe",
+  "mln_vulkan/globe",
+  "mln_webgpu/globe",
 ]
 
 [dependencies]
@@ -37,7 +37,12 @@ mln_map.workspace = true
 mln_renderer.workspace = true
 # The devices and offscreen targets the frontend renders on, of every
 # backend.
-mln_runtime = { workspace = true, features = ["webgpu", "metal", "vulkan", "gl"] }
+mln_runtime = { workspace = true, features = [
+  "webgpu",
+  "metal",
+  "vulkan",
+  "gl",
+] }
 mln_style.workspace = true
 mln_text.workspace = true
 mln_util.workspace = true

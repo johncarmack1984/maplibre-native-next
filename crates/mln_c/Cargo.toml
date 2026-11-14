@@ -30,12 +30,12 @@ vulkan = ["mln_runtime/vulkan", "dep:mln_vulkan"]
 gl = ["mln_runtime/gl", "dep:mln_gl"]
 # The globe (crates/mln_map_types/Cargo.toml).
 globe = [
-    "mln_map/globe",
-    "mln_map_types/globe",
-    "mln_renderer/globe",
-    "mln_runtime/globe",
-    "mln_gl?/globe",
-    "mln_vulkan/globe",
+  "mln_map/globe",
+  "mln_map_types/globe",
+  "mln_renderer/globe",
+  "mln_runtime/globe",
+  "mln_gl?/globe",
+  "mln_vulkan/globe",
 ]
 
 [dependencies]

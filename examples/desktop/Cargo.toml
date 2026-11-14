@@ -22,7 +22,13 @@ doc = false
 [features]
 default = ["globe"]
 # The globe (crates/mln_map_types/Cargo.toml), which the panel can switch to.
-globe = ["mln_gl/globe", "mln_map/globe", "mln_renderer/globe", "mln_vulkan/globe", "mln_webgpu/globe"]
+globe = [
+  "mln_gl/globe",
+  "mln_map/globe",
+  "mln_renderer/globe",
+  "mln_vulkan/globe",
+  "mln_webgpu/globe",
+]
 
 [dependencies]
 egui.workspace = true

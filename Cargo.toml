@@ -467,14 +467,14 @@ default = ["globe"]
 # The globe projection (crates/mln_map_types/Cargo.toml). Without it, every
 # style draws on Mercator, and the build leaves out the globe's code.
 globe = [
-    "mln_gestures/globe",
-    "mln_gl/globe",
-    "mln_map/globe",
-    "mln_map_types/globe",
-    "mln_renderer/globe",
-    "mln_runtime/globe",
-    "mln_vulkan/globe",
-    "mln_webgpu/globe",
+  "mln_gestures/globe",
+  "mln_gl/globe",
+  "mln_map/globe",
+  "mln_map_types/globe",
+  "mln_renderer/globe",
+  "mln_runtime/globe",
+  "mln_vulkan/globe",
+  "mln_webgpu/globe",
 ]
 
 [dependencies]
@@ -494,7 +494,12 @@ mln_map_types.workspace = true
 mln_math.workspace = true
 mln_mtl.workspace = true
 mln_renderer = { workspace = true, features = ["font-face-shaper"] }
-mln_runtime = { workspace = true, features = ["webgpu", "metal", "vulkan", "gl"] }
+mln_runtime = { workspace = true, features = [
+  "webgpu",
+  "metal",
+  "vulkan",
+  "gl",
+] }
 mln_sprite.workspace = true
 # The ambient cache, offline regions and mbtiles:// sources, as in C++.
 mln_storage = { workspace = true, features = ["sqlite"] }

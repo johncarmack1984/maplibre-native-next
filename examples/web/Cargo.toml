@@ -23,7 +23,12 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = ["globe"]
 # The globe (crates/mln_map_types/Cargo.toml), for the styles that ask for it.
-globe = ["mln_gl?/globe", "mln_map/globe", "mln_renderer/globe", "mln_webgpu/globe"]
+globe = [
+  "mln_gl?/globe",
+  "mln_map/globe",
+  "mln_renderer/globe",
+  "mln_webgpu/globe",
+]
 # The module for browsers without WebGPU, which draws with WebGL2 through
 # mln_gl (src/map_webgl.rs). `mise run web:build` builds it beside the WebGPU
 # one; the page loads one of the two. Nothing in it calls mln_webgpu or wgpu, so the

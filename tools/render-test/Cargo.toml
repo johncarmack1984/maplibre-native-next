@@ -25,7 +25,12 @@ path = "src/main.rs"
 [features]
 default = ["globe"]
 # The globe (crates/mln_map_types/Cargo.toml), which render tests draw.
-globe = ["mln_headless/globe", "mln_map/globe", "mln_map_types/globe", "mln_renderer/globe"]
+globe = [
+  "mln_headless/globe",
+  "mln_map/globe",
+  "mln_map_types/globe",
+  "mln_renderer/globe",
+]
 
 [dependencies]
 fastrand.workspace = true

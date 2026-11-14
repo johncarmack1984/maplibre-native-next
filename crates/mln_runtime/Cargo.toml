@@ -27,7 +27,13 @@ metal = ["dep:mln_mtl"]
 vulkan = ["dep:mln_vulkan"]
 gl = ["dep:mln_gl"]
 # The globe (crates/mln_map_types/Cargo.toml), in the map and the backends.
-globe = ["mln_map/globe", "mln_renderer/globe", "mln_gl?/globe", "mln_vulkan?/globe", "mln_webgpu?/globe"]
+globe = [
+  "mln_map/globe",
+  "mln_renderer/globe",
+  "mln_gl?/globe",
+  "mln_vulkan?/globe",
+  "mln_webgpu?/globe",
+]
 
 [dependencies]
 feature.workspace = true
