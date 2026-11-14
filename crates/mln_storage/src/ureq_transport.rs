@@ -7,25 +7,21 @@
 //! Eyeballs), so the agent's TCP step does too: see `HappyEyeballsConnector`.
 //!
 //! A request for a byte range asks for the identity encoding, since a range
-//! of a compressed body isn't a range of the resource. On Android, plain
-//! HTTP follows the app's network security configuration.
+//! of a compressed body isn't a range of the resource.
 //!
 //! TLS checks certificates against the system's trust store (rustls with
 //! rustls-platform-verifier; `SChannel` through native-tls on Windows), as curl
-//! does with the system's CA bundle. On Android without the app's Java VM or
-//! the verifier's Android component, that is the store's certificate files.
-//! A proxy comes from the environment
+//! does with the system's CA bundle. A proxy comes from the environment
 //! (`HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, ...), as for curl.
 //!
 //! ureq follows redirects with every header it was given, so a request with
 //! the host's headers follows them here instead, and drops those headers
-//! once a redirect leaves their origin. On Android every request does, so
-//! that each URL's plain HTTP is checked.
+//! once a redirect leaves their origin.
 
 use std::net::SocketAddr;
-#[cfg(any(target_os = "android", test))]
-use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, mpsc};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use mln_util::chrono::rfc1123;
@@ -41,6 +37,7 @@ use ureq::unversioned::transport::{
 };
 
 use crate::http_file_source::{HttpTransport, Transfer, TransferRequest, range_header, same_origin};
+use crate::redirect::redirect_url;
 use crate::resource::Resource;
 use crate::response::{Reason, ResourceError};
 
@@ -127,7 +124,7 @@ fn start_attempt<A: Connector>(
     let run_connector = Arc::clone(&details.run_connector);
     let register_shutdown = Arc::clone(&details.register_shutdown);
     let per_address = Arc::clone(per_address);
-    mln_util::thread::builder("HTTPFileSource connect").spawn(move || {
+    mln_util::thread::spawn("HTTPFileSource connect", move || {
         // TcpConnector doesn't resolve; a resolver is only required.
         let resolver = DefaultResolver::default();
         let mut addrs = resolver.empty();
@@ -156,48 +153,112 @@ fn start_attempt<A: Connector>(
 }
 
 /// The ureq transport: requests wait in a queue for the next free one
-/// of its worker threads, which runs the transfer. The workers exit when
-/// the transport is dropped, each after its current transfer.
+/// of its worker threads, which runs the transfer.
+///
+/// Dropping it ends the workers: their transfers fail at once, except a
+/// name lookup or a TCP connect, which nothing interrupts. It waits up to
+/// `STOP_TIMEOUT` for them, and a worker still in one after that ends alone
+/// once it returns, without finishing its request.
 pub(crate) struct Transport {
-    requests: mpsc::Sender<TransferRequest>,
+    requests: Option<mpsc::Sender<TransferRequest>>,
+    client: Arc<OnceLock<Client>>,
+    stopping: Arc<AtomicBool>,
+    workers: Vec<JoinHandle<()>>,
+    /// Disconnects once every worker has returned.
+    ended: Mutex<mpsc::Receiver<()>>,
 }
+
+/// How long dropping a [`Transport`] waits for its workers. Shutting the
+/// agent down ends their reads, writes and TLS handshakes at once, so only
+/// a name lookup or a TCP connect lasts longer, which the operating system
+/// gives up on after tens of seconds or minutes: a bound that long would
+/// hold up a host that drops its runtime, and a second covers a lookup or
+/// connect that is merely slow.
+const STOP_TIMEOUT: Duration = Duration::from_secs(1);
 
 impl Transport {
     /// Starts as many workers as the online file source's default
     /// maximum of concurrent requests. Their client is made with the first
-    /// transfer, so that it sees the host's setup until then, such as
-    /// `android::init`.
+    /// transfer.
     pub(crate) fn new() -> Self {
+        Self::with_client(Client::new)
+    }
+
+    /// `new`, with the workers' client from `make` (tests).
+    fn with_client(make: fn() -> Client) -> Self {
         let client = Arc::new(OnceLock::new());
+        let stopping = Arc::new(AtomicBool::new(false));
         let (requests, receiver) = mpsc::channel::<TransferRequest>();
+        let (running, ended) = mpsc::channel::<()>();
         let receiver = Arc::new(Mutex::new(receiver));
-        for i in 0..mln_util::constants::DEFAULT_MAXIMUM_CONCURRENT_REQUESTS {
-            let client = Arc::clone(&client);
-            let receiver = Arc::clone(&receiver);
-            // Detached: a worker exits when the channel closes.
-            let _ = mln_util::thread::builder(format!("HTTPFileSource {i}")).spawn(move || worker(&client, &receiver));
+        let workers = (0..mln_util::constants::DEFAULT_MAXIMUM_CONCURRENT_REQUESTS)
+            .filter_map(|i| {
+                let worker = Worker {
+                    client: Arc::clone(&client),
+                    make,
+                    requests: Arc::clone(&receiver),
+                    stopping: Arc::clone(&stopping),
+                    _running: running.clone(),
+                };
+                mln_util::thread::spawn(format!("HTTPFileSource {i}"), move || worker.run()).ok()
+            })
+            .collect();
+        Transport { requests: Some(requests), client, stopping, workers, ended: Mutex::new(ended) }
+    }
+}
+
+impl Drop for Transport {
+    fn drop(&mut self) {
+        // Set first: a worker that checks it unset has its client made
+        // already, which the shutdown below reaches.
+        self.stopping.store(true, Ordering::SeqCst);
+        self.requests = None;
+        if let Some(client) = self.client.get() {
+            client.agent.clone().shutdown();
         }
-        Transport { requests }
+        if matches!(self.ended.get_mut().recv_timeout(STOP_TIMEOUT), Err(mpsc::RecvTimeoutError::Disconnected)) {
+            for worker in self.workers.drain(..) {
+                let _ = worker.join();
+            }
+        }
     }
 }
 
 impl HttpTransport for Transport {
     fn start(&self, request: TransferRequest) {
-        let _ = self.requests.send(request);
+        if let Some(requests) = &self.requests {
+            let _ = requests.send(request);
+        }
     }
 }
 
-fn worker(client: &OnceLock<Client>, requests: &Mutex<mpsc::Receiver<TransferRequest>>) {
-    loop {
-        let request = requests.lock().recv();
-        let Ok(request) = request else {
-            return; // the transport is gone
-        };
-        if request.is_cancelled() {
-            continue;
+/// A worker thread of a [`Transport`].
+struct Worker {
+    client: Arc<OnceLock<Client>>,
+    make: fn() -> Client,
+    requests: Arc<Mutex<mpsc::Receiver<TransferRequest>>>,
+    stopping: Arc<AtomicBool>,
+    /// Tells the transport that the worker returned, when it drops.
+    _running: mpsc::Sender<()>,
+}
+
+impl Worker {
+    fn run(self) {
+        loop {
+            let request = self.requests.lock().recv();
+            let Ok(request) = request else {
+                return; // the transport is gone
+            };
+            if request.is_cancelled() {
+                continue;
+            }
+            let client = self.client.get_or_init(self.make);
+            if self.stopping.load(Ordering::SeqCst) {
+                return;
+            }
+            let transfer = client.transfer(request.resource(), request.headers());
+            request.finish(transfer);
         }
-        let transfer = client.get_or_init(Client::new).transfer(request.resource(), request.headers());
-        request.finish(transfer);
     }
 }
 
@@ -226,51 +287,16 @@ fn tls_config() -> TlsConfig {
     TlsConfig::builder().provider(TlsProvider::NativeTls).root_certs(RootCerts::PlatformVerifier).build()
 }
 
-/// The system's trust store, with ring's cryptography (ureq's rustls without
-/// its baked-in Mozilla roots needs the provider spelled out).
+/// The system's verifier, through rustls-platform-verifier, with ring's
+/// cryptography (ureq's rustls without its baked-in Mozilla roots needs the
+/// provider spelled out).
 #[cfg(not(target_os = "windows"))]
 fn tls_config() -> TlsConfig {
     TlsConfig::builder()
         .provider(TlsProvider::Rustls)
-        .root_certs(root_certs())
+        .root_certs(RootCerts::PlatformVerifier)
         .unversioned_rustls_crypto_provider(Arc::new(rustls::crypto::ring::default_provider()))
         .build()
-}
-
-/// The system's verifier, through rustls-platform-verifier.
-#[cfg(not(any(target_os = "windows", target_os = "android")))]
-fn root_certs() -> RootCerts {
-    RootCerts::PlatformVerifier
-}
-
-/// Android's verifier once [`android::init`](crate::android::init) gave it
-/// the app's Java VM, which it panics without, and found its component in
-/// the app. Otherwise the certificates of
-/// Android's store, from its files: Conscrypt's, which Android 14 and later
-/// update, else the system image's. Those leave out the ones a user
-/// installed.
-#[cfg(target_os = "android")]
-fn root_certs() -> RootCerts {
-    if crate::android::verifier_ready() {
-        return RootCerts::PlatformVerifier;
-    }
-    certificates_in(&[Path::new("/apex/com.android.conscrypt/cacerts"), Path::new("/system/etc/security/cacerts")])
-}
-
-/// The PEM certificates in the first of `dirs` that has any, or none.
-#[cfg(any(target_os = "android", test))]
-fn certificates_in(dirs: &[&Path]) -> RootCerts {
-    for dir in dirs {
-        let Ok(entries) = std::fs::read_dir(dir) else { continue };
-        let certs: Vec<_> = entries
-            .filter_map(|entry| std::fs::read(entry.ok()?.path()).ok())
-            .filter_map(|pem| ureq::tls::Certificate::from_pem(&pem).ok())
-            .collect();
-        if !certs.is_empty() {
-            return RootCerts::new_with_certs(&certs);
-        }
-    }
-    RootCerts::new_with_certs(&[])
 }
 
 impl Client {
@@ -304,14 +330,8 @@ impl Client {
         let mut url = resource.url.clone();
         let mut headers = headers;
         let mut redirects = 0;
-        // Android's network security configuration applies to each URL of a
-        // redirect chain, so there every redirect is followed here.
-        let follows_redirects = !headers.is_empty() || cfg!(target_os = "android");
+        let follows_redirects = !headers.is_empty();
         loop {
-            #[cfg(target_os = "android")]
-            if let Some(refusal) = cleartext_refusal(&url, crate::android::cleartext_permitted) {
-                return Err(Box::new(refusal));
-            }
             let mut http_response = self.call(resource, &url, headers, follows_redirects)?;
             let status = http_response.status().as_u16();
             if follows_redirects
@@ -380,103 +400,6 @@ impl Client {
             request.call().map_err(|e| Box::new(error(&e)))
         }
     }
-}
-
-/// The error of a plain HTTP request to `url` that `permitted` refuses for
-/// its host, as Android's own HTTP clients word it, or `None` when the
-/// request may go ahead.
-#[cfg(any(target_os = "android", test))]
-fn cleartext_refusal(url: &str, permitted: impl FnOnce(&str) -> bool) -> Option<ResourceError> {
-    let uri = url.parse::<ureq::http::Uri>().ok()?;
-    if !uri.scheme_str().is_some_and(|scheme| scheme.eq_ignore_ascii_case("http")) {
-        return None;
-    }
-    let host = uri.host()?;
-    let host = host.strip_prefix('[').and_then(|host| host.strip_suffix(']')).unwrap_or(host);
-    // A refusal is the app's policy, which no retry changes.
-    (!permitted(host))
-        .then(|| ResourceError::new(Reason::Other, format!("Cleartext HTTP traffic to {host} not permitted")))
-}
-
-/// The URL a redirect from `current` to `location` goes to: `location`
-/// resolved against `current` (RFC 3986, section 5.2), or `None` when it
-/// isn't an `http` or `https` URL.
-fn redirect_url(current: &str, location: &str) -> Option<String> {
-    let has_http_scheme = |url: &str| {
-        url.get(..7).is_some_and(|prefix| prefix.eq_ignore_ascii_case("http://"))
-            || url.get(..8).is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://"))
-    };
-    if has_http_scheme(location) {
-        return Some(location.to_owned());
-    }
-    if has_url_scheme(location) || !has_http_scheme(current) {
-        return None;
-    }
-
-    let scheme_end = current.find("://")?;
-    let scheme = &current[..scheme_end];
-    if location.starts_with("//") {
-        return Some(format!("{scheme}:{location}"));
-    }
-
-    let authority_start = scheme_end + 3;
-    let origin_end =
-        current[authority_start..].find(['/', '?', '#']).map_or(current.len(), |index| authority_start + index);
-    let origin = &current[..origin_end];
-    let path_end = current.find(['?', '#']).unwrap_or(current.len()).max(origin_end);
-    if location.starts_with('/') {
-        let (path, suffix) = split_url_path_suffix(location);
-        return Some(format!("{origin}{}{suffix}", remove_dot_segments(path)));
-    }
-    if location.starts_with('?') {
-        return Some(format!("{}{location}", &current[..path_end]));
-    }
-    if location.starts_with('#') {
-        let fragment_start = current.find('#').unwrap_or(current.len());
-        return Some(format!("{}{location}", &current[..fragment_start]));
-    }
-
-    let current_path = &current[origin_end..path_end];
-    let directory = current_path.rfind('/').map_or("/", |index| &current_path[..=index]);
-    let (path, suffix) = split_url_path_suffix(location);
-    Some(format!("{origin}{}{suffix}", remove_dot_segments(&format!("{directory}{path}"))))
-}
-
-/// Whether `value` starts with a scheme (a `:` before any `/`, `?` or `#`).
-fn has_url_scheme(value: &str) -> bool {
-    value.find([':', '/', '?', '#']).is_some_and(|index| value.as_bytes()[index] == b':')
-}
-
-/// A URL reference's path, and its query and fragment.
-fn split_url_path_suffix(value: &str) -> (&str, &str) {
-    value.split_at(value.find(['?', '#']).unwrap_or(value.len()))
-}
-
-/// `path` without its `.` and `..` segments.
-fn remove_dot_segments(path: &str) -> String {
-    if !path.split('/').any(|segment| segment == "." || segment == "..") {
-        return path.to_owned();
-    }
-    let has_trailing_slash = path.ends_with('/') || path.ends_with("/.") || path.ends_with("/..");
-    let mut segments = Vec::new();
-    for segment in path.split('/') {
-        match segment {
-            "" | "." => {}
-            ".." => {
-                segments.pop();
-            }
-            segment => segments.push(segment),
-        }
-    }
-    let mut normalized = String::new();
-    if path.starts_with('/') {
-        normalized.push('/');
-    }
-    normalized.push_str(&segments.join("/"));
-    if (has_trailing_slash && !normalized.ends_with('/')) || normalized.is_empty() {
-        normalized.push('/');
-    }
-    normalized
 }
 
 #[cfg(test)]
@@ -574,9 +497,58 @@ mod tests {
         assert_eq!([dropped[0], server], attempts.lock()[..2]);
     }
 
+    /// Takes one connection on a loopback port and never answers it.
+    /// Returns the port and what tells of the connection.
+    fn never_answer() -> (SocketAddr, mpsc::Receiver<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (accepted, was_accepted) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            accepted.send(()).unwrap();
+            let mut buffer = [0; 1024];
+            while stream.read(&mut buffer).is_ok_and(|read| read != 0) {}
+        });
+        (addr, was_accepted)
+    }
+
+    #[test]
+    fn dropping_the_transport_ends_a_transfer_that_waits_for_its_response() {
+        let (addr, accepted) = never_answer();
+        let transport = Transport::new();
+        let client = Arc::downgrade(&transport.client);
+        transport.start(TransferRequest::unanswered(Resource::style(&format!("http://{addr}/style.json"))));
+        accepted.recv_timeout(Duration::from_secs(10)).unwrap();
+        let started = Instant::now();
+        drop(transport);
+        assert!(started.elapsed() < STOP_TIMEOUT, "took {:?}", started.elapsed());
+        assert!(client.upgrade().is_none(), "a worker still runs");
+    }
+
+    #[test]
+    fn dropping_the_transport_waits_for_a_connect_until_its_timeout() {
+        const HANGING: SocketAddr =
+            SocketAddr::new(std::net::IpAddr::V6(std::net::Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)), 80);
+        static ATTEMPTS: std::sync::LazyLock<Arc<Mutex<Vec<SocketAddr>>>> = std::sync::LazyLock::new(Arc::default);
+        let transport = Transport::with_client(|| {
+            Client::with_parts(
+                DroppingConnector { dropped: vec![HANGING], attempts: Arc::clone(&ATTEMPTS) },
+                FixedResolver(vec![HANGING]),
+            )
+        });
+        transport.start(TransferRequest::unanswered(Resource::style("http://hanging.test/style.json")));
+        while ATTEMPTS.lock().is_empty() {
+            std::thread::yield_now();
+        }
+        let started = Instant::now();
+        drop(transport);
+        let waited = started.elapsed();
+        assert!(waited >= STOP_TIMEOUT && waited < STOP_TIMEOUT * 5, "took {waited:?}");
+    }
+
     /// Answers one request on a loopback port with 200 and returns the
     /// port and the request's head.
-    fn serve_one() -> (SocketAddr, std::thread::JoinHandle<String>) {
+    fn serve_one() -> (SocketAddr, JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
@@ -610,120 +582,5 @@ mod tests {
         Client::new().transfer(&Resource::style(&format!("http://{addr}/style.json")), &[]).unwrap();
         let request = server.join().unwrap();
         assert!(request.contains("\r\naccept-encoding: gzip\r\n"), "{request}");
-    }
-
-    #[test]
-    fn plain_http_to_a_refused_host_fails_with_the_host() {
-        let refuse = |expected: &'static str| {
-            move |host: &str| {
-                assert_eq!(host, expected);
-                false
-            }
-        };
-        let refusal = cleartext_refusal("http://localhost:8080/style.json", refuse("localhost")).unwrap();
-        assert_eq!(refusal.reason, Reason::Other);
-        assert_eq!(refusal.message, "Cleartext HTTP traffic to localhost not permitted");
-        assert!(cleartext_refusal("HTTP://Tiles.Example/a", refuse("Tiles.Example")).is_some());
-        assert!(cleartext_refusal("http://[::1]:80/a", refuse("::1")).is_some());
-        assert!(cleartext_refusal("http://localhost/a", |_| true).is_none());
-        let unasked = |_: &str| -> bool { panic!("HTTPS has no cleartext policy") };
-        assert!(cleartext_refusal("https://localhost/a", unasked).is_none());
-    }
-
-    #[test]
-    fn a_location_resolves_against_the_current_url() {
-        let current = "https://tiles.localhost:8443/styles/v1/style.json?key=1#top";
-        let cases = [
-            ("https://other.localhost/a", Some("https://other.localhost/a")),
-            ("HTTP://other.localhost/a", Some("HTTP://other.localhost/a")),
-            ("//cdn.localhost/b", Some("https://cdn.localhost/b")),
-            ("/root.json", Some("https://tiles.localhost:8443/root.json")),
-            ("/a/../b/./c.json?x#y", Some("https://tiles.localhost:8443/b/c.json?x#y")),
-            ("next.json", Some("https://tiles.localhost:8443/styles/v1/next.json")),
-            ("../up.json", Some("https://tiles.localhost:8443/styles/up.json")),
-            ("?key=2", Some("https://tiles.localhost:8443/styles/v1/style.json?key=2")),
-            ("#bottom", Some("https://tiles.localhost:8443/styles/v1/style.json?key=1#bottom")),
-            ("ftp://files.localhost/a", None),
-            ("mailto:someone@tiles.localhost", None),
-        ];
-        for (location, expected) in cases {
-            assert_eq!(redirect_url(current, location).as_deref(), expected, "{location}");
-        }
-    }
-
-    #[test]
-    fn a_relative_location_needs_an_http_current_url() {
-        assert_eq!(redirect_url("file:///a/b.json", "c.json"), None);
-        assert_eq!(redirect_url("no-scheme", "/c.json"), None);
-        assert_eq!(redirect_url("http://host.localhost", "c.json").as_deref(), Some("http://host.localhost/c.json"));
-        assert_eq!(redirect_url("http://host.localhost?q", "c.json").as_deref(), Some("http://host.localhost/c.json"));
-    }
-
-    /// A self-signed certificate, followed by text as in Android's store
-    /// files.
-    const CERTIFICATE: &str = "-----BEGIN CERTIFICATE-----
-MIIBajCCARCgAwIBAgIUCH3FebEqN5UxxXgKDcRPYzuZ5x8wCgYIKoZIzj0EAwIw
-GjEYMBYGA1UEAwwPY2VydGlmaWNhdGVzX2luMCAXDTI2MTExMzA4MDI0M1oYDzIx
-MjYxMDIwMDgwMjQzWjAaMRgwFgYDVQQDDA9jZXJ0aWZpY2F0ZXNfaW4wWTATBgcq
-hkjOPQIBBggqhkjOPQMBBwNCAAR+aUOIMLuZ3C54InMK72dDWUTvGmZBNB9xxyaA
-o6fcYEHKpiWN1lXFRyyCqAJxVvIyGgeKUgzUu+uOTTUv/1ndozIwMDAdBgNVHQ4E
-FgQUDQfGE8z6YxPo2nDz6XsWYHJQADowDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjO
-PQQDAgNIADBFAiEAxxCQPrBob9yTzGqIewLiHbeuMC7tbH2ggvzkL9WE3PcCIEVy
-EDlU/+n+jFaxs2Xlku8oIXS1LVGH0/GTBlXygJsx
------END CERTIFICATE-----
-Certificate:
-    Data:
-        Version: 3 (0x2)
-";
-
-    fn certificate_count(roots: &RootCerts) -> usize {
-        match roots {
-            RootCerts::Specific(certs) => certs.len(),
-            _ => panic!("not specific certificates"),
-        }
-    }
-
-    #[test]
-    fn certificates_come_from_the_first_folder_that_has_any() {
-        let temp = crate::tests::temp_path("stores");
-        let base = Path::new(&*temp);
-        let (missing, empty, store, later) =
-            (base.join("missing"), base.join("empty"), base.join("store"), base.join("later"));
-        for dir in [&empty, &store, &later] {
-            std::fs::create_dir_all(dir).unwrap();
-        }
-        std::fs::write(store.join("0a1b2c3d.0"), CERTIFICATE).unwrap();
-        std::fs::write(store.join("README"), "not a certificate").unwrap();
-        std::fs::write(later.join("0a1b2c3d.0"), CERTIFICATE).unwrap();
-        std::fs::write(later.join("0a1b2c3d.1"), CERTIFICATE).unwrap();
-
-        assert_eq!(certificate_count(&certificates_in(&[&missing, &empty, &store, &later])), 1);
-        assert_eq!(certificate_count(&certificates_in(&[&later, &store])), 2);
-    }
-
-    #[test]
-    fn without_certificates_nothing_is_trusted() {
-        let temp = crate::tests::temp_path("stores");
-        let empty = Path::new(&*temp).join("empty");
-        std::fs::create_dir_all(&empty).unwrap();
-        assert_eq!(certificate_count(&certificates_in(&[&empty, Path::new("/nonexistent/cacerts")])), 0);
-    }
-
-    #[test]
-    fn dot_segments_are_removed_from_a_path() {
-        let cases = [
-            ("/a/b/c", "/a/b/c"),
-            ("/a/./b", "/a/b"),
-            ("/a/../b", "/b"),
-            ("/../a", "/a"),
-            ("/a/b/..", "/a/"),
-            ("/a/.", "/a/"),
-            ("/..", "/"),
-            ("a/../b", "b"),
-            ("/a//b/../c", "/a/c"),
-        ];
-        for (path, expected) in cases {
-            assert_eq!(remove_dot_segments(path), expected, "{path}");
-        }
     }
 }

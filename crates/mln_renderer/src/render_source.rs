@@ -18,6 +18,7 @@ use mln_tile_id::OverscaledTileID;
 use mln_util::constants;
 use mln_util::error::Error;
 
+use crate::image_manager::ImageManager;
 use crate::paint_parameters::TransformParameters;
 use crate::render_tile::RenderTile;
 use crate::render_tree::RenderItem;
@@ -30,6 +31,7 @@ use crate::tile_parameters::TileParameters;
 
 pub(crate) struct SourcePrepareParameters<'a> {
     pub(crate) transform: &'a TransformParameters,
+    pub(crate) image_manager: &'a ImageManager,
     pub(crate) debug_options: MapDebugOptions,
     pub(crate) source_name: String,
 }
@@ -192,7 +194,7 @@ pub(crate) trait RenderSource {
     /// Makes the source's feature state `states`, `None` for no state, in
     /// place of what it held, as of the next `prepare`. Giving the same
     /// `states` again changes nothing.
-    fn set_feature_states(&mut self, _states: Option<&Arc<crate::bucket::LayerFeatureStates>>) {}
+    fn set_feature_states(&mut self, _states: Option<&crate::source_state::SourceFeatureStates>) {}
 
     fn get_feature_state(
         &self,
@@ -213,7 +215,6 @@ pub(crate) trait RenderSource {
     // query
     /// Queries the rendered features in `geometry`; sources without features
     /// return nothing. `Err` if the query fails (a malformed tile).
-    #[allow(clippy::too_many_arguments)]
     fn query_rendered_features(
         &self,
         _geometry: &[mln_util::geo::ScreenCoordinate],
