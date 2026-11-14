@@ -1251,8 +1251,20 @@ const QUERY_STYLE: &str = r#"{
 /// A session of a map at zoom 0 around (0, 0) that has drawn `QUERY_STYLE`
 /// with every source loaded.
 fn query_session(runtime: &Runtime) -> (Map, RenderSession) {
+    styled_query_session(runtime, QUERY_STYLE, |session| {
+        wait(session.query_source_features("points", SourceQueryOptions::default())).len() == 2
+    })
+}
+
+/// A session of a map at zoom 0 around (0, 0) that has drawn `style`, once
+/// `ready` holds for it.
+fn styled_query_session(
+    runtime: &Runtime,
+    style: &str,
+    ready: impl Fn(&RenderSession) -> bool,
+) -> (Map, RenderSession) {
     let map = map_in_mode(runtime, MapMode::Continuous);
-    wait(map.set_style_json(QUERY_STYLE));
+    wait(map.set_style_json(style));
     wait(map.update_camera(CameraUpdate {
         camera: CameraOptions { zoom: Some(0.0), center: Some(LatLng::default()), ..Default::default() },
         ..Default::default()
@@ -1261,11 +1273,45 @@ fn query_session(runtime: &Runtime) -> (Map, RenderSession) {
     let loaded = eventually(|| {
         demand(&session, DemandMode::Force, 0);
         let result = take_one(&session);
-        result.mode == mln_map::RenderMode::Full
-            && wait(session.query_source_features("points", SourceQueryOptions::default())).len() == 2
+        result.mode == mln_map::RenderMode::Full && ready(&session)
     });
     assert!(loaded, "the sources never loaded");
     (map, session)
+}
+
+/// Two fill layers of different sources and two of one source, all drawing
+/// the whole view, in the order back, middle, front, top.
+const OVERLAPPING_STYLE: &str = r##"{
+  "version": 8,
+  "sources": {
+    "back": {"type": "geojson", "data": {"type": "Feature", "properties": {"name": "back"},
+      "geometry": {"type": "Polygon", "coordinates": [[[-170, -80], [170, -80], [170, 80], [-170, 80], [-170, -80]]]}}},
+    "front": {"type": "geojson", "data": {"type": "Feature", "properties": {"name": "front"},
+      "geometry": {"type": "Polygon", "coordinates": [[[-170, -80], [170, -80], [170, 80], [-170, 80], [-170, -80]]]}}}
+  },
+  "layers": [
+    {"id": "back", "type": "fill", "source": "back", "paint": {"fill-color": "#0000ff"}},
+    {"id": "middle", "type": "fill", "source": "front", "paint": {"fill-color": "#00ff00"}},
+    {"id": "front", "type": "fill", "source": "front", "paint": {"fill-color": "#ff0000"}},
+    {"id": "top", "type": "fill", "source": "back", "paint": {"fill-color": "#ffff00"}}
+  ]
+}"##;
+
+#[test]
+fn rendered_queries_return_the_front_layer_first() {
+    let runtime = runtime();
+    let layers = |session: &RenderSession, options| -> Vec<String> {
+        let center = RenderedQueryGeometry::Point(ScreenCoordinate::new(32.0, 32.0));
+        wait(session.query_rendered_features(center, options)).into_iter().map(|feature| feature.layer).collect()
+    };
+    let (_map, session) = styled_query_session(&runtime, OVERLAPPING_STYLE, |session| {
+        layers(session, RenderedQueryOptions::default()).len() == 4
+    });
+
+    assert_eq!(["top", "front", "middle", "back"], layers(&session, RenderedQueryOptions::default()).as_slice());
+    // The order of the requested layers doesn't matter.
+    let back_then_front = RenderedQueryOptions::new(Some(vec!["back".into(), "front".into()]), None);
+    assert_eq!(["front", "back"], layers(&session, back_then_front).as_slice());
 }
 
 #[test]
@@ -1338,10 +1384,20 @@ fn cluster_queries_read_a_clustered_source() {
     assert_ne!(wait(session.cluster_children("clustered", cluster_id)), Vec::<feature::Feature>::new());
     assert_eq!(3, wait(session.cluster_leaves("clustered", cluster_id, 10, 0)).len());
     assert_eq!(1, wait(session.cluster_leaves("clustered", cluster_id, 1, 2)).len());
+    // As in C++ supercluster, an offset at or past the last leaf, or a limit
+    // of 0, gives no leaves rather than an error.
+    for (limit, offset) in [(10, 3), (10, 10), (0, 0)] {
+        assert_eq!(
+            wait(session.cluster_leaves("clustered", cluster_id, limit, offset)),
+            Vec::<feature::Feature>::new()
+        );
+    }
     assert!(wait(session.cluster_expansion_zoom("clustered", cluster_id)) > 0);
 
     let kind = |completion| wait_err(completion).kind;
     assert_eq!(ErrorKind::NotFound, kind(session.cluster_children("missing", cluster_id)));
     assert_eq!(ErrorKind::InvalidArgument, kind(session.cluster_children("points", cluster_id)));
     assert_eq!(ErrorKind::NotFound, kind(session.cluster_children("clustered", 0)));
+    // A limit of 0 still checks the cluster ID.
+    assert_eq!(ErrorKind::NotFound, kind(session.cluster_leaves("clustered", 0, 0, 0)));
 }

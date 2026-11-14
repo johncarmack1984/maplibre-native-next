@@ -46,6 +46,14 @@ mise run bench:compare main         # this checkout, uncommitted changes include
 | `Frame/AddImages`                                   | from adding 50 icons to a settled basemap, five on each refresh, until it stops asking for frames; a symbol layer over 20 points draws five of them, which its tile asked for before they were added, and nothing draws the rest                        |
 | `Load/Concurrent`                                   | 16 renderers on threads of their own, each from loading a real-world style on a new map to its first complete still through `HeadlessFrontend::render`, as the render tests' workers draw; the GPU devices are set up before                            |
 | `Load/GlyphCache/Private`, `Load/GlyphCache/Shared` | `Load/Concurrent` over the render suite's `text-font/chinese` style (500 labels, about 2,500 CJK characters over 80 glyph ranges), each renderer with a glyph cache of its own, or all sharing one `GlyphCache`                                         |
+| `Style/Replace600`                                  | replacing a style of 600 circle layers over 100 GeoJSON points, each filtered by point id as maplibre-compose's style benchmarks build one, with its other variant, to the first complete still                                                         |
+| `Runtime/Lifecycle`                                 | starting a runtime with the default options, then releasing it and waiting for the release, as maplibre-native-ffi's case of the name does through the C API                                                                                            |
+| `Command/RoundTrip`                                 | a camera jump sent to a runtime's settled basemap until its completion arrives, its offscreen session drawing nothing meanwhile, as maplibre-native-ffi's case of the name does                                                                         |
+| `Command/Burst`                                     | 1000 camera jumps sent to that map without waiting, then a camera query, until its answer arrives, as maplibre-native-ffi's case of the name does                                                                                                       |
+| `Memory/LeaveZoomRange`                             | a jump from zoom 15.5 to 14.5, out of the range of every basemap layer that draws a source, until a frame shows the view complete, on a map that keeps no tile that left the view; untimed, the map settles there and back at 15.5                      |
+| `Style/Replace600/OnDemand`                         | as `Style/Replace600`, on a continuous map drawn on a 60 Hz display's clock, until it settles complete                                                                                                                                                  |
+| `Style/AddLayer600`                                 | a circle layer added over `Style/Replace600`'s first style until the continuous map settles complete, then removed until it settles, as maplibre-compose's overlay-update case does                                                                     |
+| `GeoJson/Replace1000`                               | replacing a GeoJSON source's 1000 points under one circle layer with the other variant, until the continuous map settles with every tile showing the new points, on the display's clock                                                                 |
 | `Load/JumpWarm`, `Load/JumpCold`                    | a jump between two views that share no tile until a frame shows the new view complete, on the display's clock; cold drops the loaded tiles first                                                                                                        |
 
 In `Frame/Paced`, refreshes are absolute deadlines, and at each refresh with no
@@ -67,7 +75,9 @@ metrics only; `--verbose` also shows the others.
   still counts. The median of the case's iterations.
 - **`minstr`**, `mcycles`: the millions of instructions and of cycles every
   thread of the process retires in an iteration, the median of the case's
-  iterations; macOS only. Other load on the machine hardly changes the
+  iterations; on macOS, and on Linux in user space where perf events are open to
+  the process (`perf_event_paranoid` at most 2, and not blocked by a container);
+  elsewhere they're left out. Other load on the machine hardly changes the
   instructions, so they show a change of the work done where `time_ms` and
   `cpu_ms` are noise; the cycles also count stalls, and vary with load and the
   cores the threads ran on.
@@ -91,6 +101,16 @@ metrics only; `--verbose` also shows the others.
   heap and the GPU's vertex and index buffers live while the layers are hidden.
 - In `Frame/Extrusions`: **`gpu_mib`**, the GPU's vertex and index buffers live
   once the view is complete.
+- In `Style/Replace600`: **`load_json_cpu_ms`**, the CPU time that `load_json`
+  takes before the map renders.
+- In `Style/Replace600/OnDemand` and `Style/AddLayer600`: **`frames`**, frames
+  drawn per change until the map settles complete.
+- In `GeoJson/Replace1000`: **`update_frame_ms`**, the longest frame of a
+  replacement, which is the frame that swaps the old data for the new.
+- In `Command/Burst`: `submit_ns`, the time that sending one jump takes.
+- In `Memory/LeaveZoomRange`: **`heap_mib`** and `in_range_heap_mib`, the heap
+  live once the map settled out of range and back in range, above what it was
+  before the case.
 
 ## Comparing
 
@@ -158,6 +178,6 @@ pushed files on the device.
 
 - GPU time apart from the frame (timestamp queries), and the frame's CPU time by
   stage: the port doesn't keep `RenderingStats` yet.
-- Instructions and cycles on Linux and Windows.
+- Instructions and cycles on Windows.
 - A synthetic clock for animations: in continuous mode the map reads the real
   clock, so fades and transitions in `Frame/Paced` follow wall time.

@@ -33,12 +33,14 @@ font-face-shaper = []
 bytemuck.workspace = true
 earcut.workspace = true
 feature.workspace = true
+geo-types.workspace = true
 geometry.workspace = true
 mln_actor.workspace = true
 mln_expression.workspace = true
 mln_gfx.workspace = true
 mln_image.workspace = true
 mln_map_types.workspace = true
+glam.workspace = true
 mln_math.workspace = true
 mln_storage.workspace = true
 mln_style.workspace = true
@@ -55,7 +57,7 @@ serde.workspace = true
 shelf_pack.workspace = true
 
 [dev-dependencies]
-geojson = { package = "mln-rs-geojson", path = "../../vendor/geojson" }
+geojson.workspace = true
 mln_conversion = { package = "mln-rs-conversion", path = "../mln_conversion" }
 mln_map = { package = "mln-rs-map", path = "../mln_map" }
 mln_sprite = { package = "mln-rs-sprite", path = "../mln_sprite" }

@@ -6,7 +6,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use geometry::{LinearRing, Point, Polygon};
+use geometry::Point;
+use glam::Vec2;
 use mln_expression::Value;
 use mln_expression::formatted::K_FORMATTED_SECTION_TEXT_COLOR;
 use mln_map_types::MapMode;
@@ -898,9 +899,10 @@ impl SymbolLayout {
             }
         } else if feature_type == FeatureType::Polygon {
             for polygon in mln_tile::geometry_tile_data::classify_rings(&feature.geometry) {
-                let mut poly: Polygon<f64> = Polygon::new();
+                let mut poly: polylabel::Polygon<f64> = Vec::new();
                 for ring in polygon.iter() {
-                    let r: LinearRing<f64> = ring.iter().map(|p| Point::new(f64::from(p.x), f64::from(p.y))).collect();
+                    let r: polylabel::LinearRing<f64> =
+                        ring.iter().map(|p| Point::new(f64::from(p.x), f64::from(p.y))).collect();
                     poly.push(r);
                 }
 
@@ -1151,7 +1153,7 @@ impl SymbolLayout {
             [tex.x, tex.y],
             size_data,
             symbol.is_sdf,
-            Point::new(pixel_offset_br.x, pixel_offset_tl.y),
+            Vec2::new(pixel_offset_br.x, pixel_offset_tl.y),
             min_font_scale,
         ));
         buffer.attribute_data.get_mut().push(SymbolBucket::layout_attributes(
@@ -1163,7 +1165,7 @@ impl SymbolLayout {
             [tex.x, tex.y],
             size_data,
             symbol.is_sdf,
-            Point::new(pixel_offset_tl.x, pixel_offset_br.y),
+            Vec2::new(pixel_offset_tl.x, pixel_offset_br.y),
             min_font_scale,
         ));
         buffer.attribute_data.get_mut().push(SymbolBucket::layout_attributes(
@@ -1246,10 +1248,10 @@ impl SymbolLayout {
                     const VERTEX_LENGTH: usize = 4;
                     let anchor = b.anchor;
 
-                    let tl = Point::new(b.x1, b.y1);
-                    let tr = Point::new(b.x2, b.y1);
-                    let bl = Point::new(b.x1, b.y2);
-                    let br = Point::new(b.x2, b.y2);
+                    let tl = Vec2::new(b.x1, b.y1);
+                    let tr = Vec2::new(b.x2, b.y1);
+                    let bl = Vec2::new(b.x1, b.y2);
+                    let br = Vec2::new(b.x2, b.y2);
 
                     let index_length = if feature.along_line { 6 } else { 8 };
 
@@ -1279,7 +1281,7 @@ impl SymbolLayout {
                     // Dynamic vertices are initialized so that the vertex
                     // count always agrees with the layout vertex buffer, but
                     // they will always be updated before rendering happens
-                    let dynamic_vertex = SymbolBucket::collision_dynamic_vertex(false, false, Point::new(0.0, 0.0));
+                    let dynamic_vertex = SymbolBucket::collision_dynamic_vertex(false, false, Vec2::ZERO);
                     collision_buffer.dynamic_vertices.extend_from_slice(&[dynamic_vertex; 4]);
 
                     if feature.along_line {

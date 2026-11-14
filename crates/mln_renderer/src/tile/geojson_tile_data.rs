@@ -6,29 +6,30 @@ use std::cell::OnceCell;
 use std::sync::Arc;
 
 use feature::{Feature, Identifier, PropertyMap, Value};
+use mln_style::sources::geojson_source::TileFeatures;
 use mln_tile::to_geometry_collection;
 use mln_tile_id::EncodedTileData;
 use mln_tile_id::geometry_tile_data::{GeometryCollection, GeometryTileData, GeometryTileFeature, GeometryTileLayer};
 use mln_util::error::Error;
 use mln_util::geometry::{FeatureType, to_feature_type};
 
-pub(crate) type TileFeatureCollection = Vec<Feature<i16>>;
+pub(crate) type TileFeatureCollection = TileFeatures;
 
 pub(crate) struct GeoJSONTileFeature<'a> {
-    pub(crate) feature: &'a Feature<i16>,
+    pub(crate) feature: &'a Feature<i16, Arc<PropertyMap>>,
     geometry: OnceCell<GeometryCollection>,
 }
 
 impl<'a> GeoJSONTileFeature<'a> {
     #[must_use]
-    pub(crate) fn new(feature: &'a Feature<i16>) -> Self {
+    pub(crate) fn new(feature: &'a Feature<i16, Arc<PropertyMap>>) -> Self {
         GeoJSONTileFeature { feature, geometry: OnceCell::new() }
     }
 }
 
 impl GeometryTileFeature for GeoJSONTileFeature<'_> {
     fn get_type(&self) -> FeatureType {
-        to_feature_type(&self.feature.geometry)
+        to_feature_type(self.feature.geometry.as_ref())
     }
 
     fn get_properties(&self) -> &PropertyMap {
@@ -40,7 +41,7 @@ impl GeometryTileFeature for GeoJSONTileFeature<'_> {
     }
 
     fn get_geometries(&self) -> &GeometryCollection {
-        self.geometry.get_or_init(|| to_geometry_collection(&self.feature.geometry))
+        self.geometry.get_or_init(|| to_geometry_collection(self.feature.geometry.as_ref()))
     }
 
     fn get_value(&self, key: &str) -> Option<Value> {

@@ -6,6 +6,7 @@
 use std::any::Any;
 use std::borrow::Cow;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 use feature::{Feature, Identifier as FeatureIdentifier, Value as MbglValue, ValueObject};
 use mln_text::glyph::FontFaces;
@@ -288,6 +289,16 @@ pub trait Expression: Any + Send + Sync {
     /// `operator==`.
     fn equals(&self, other: &dyn Expression) -> bool;
 
+    /// Port-only: feeds `state` the expression's structure, so that
+    /// expressions that [`equals`](Expression::equals) each other hash
+    /// alike. The default feeds the kind and each child in
+    /// [`each_child`](Expression::each_child)'s order; an expression whose
+    /// `equals` ignores one of its children must override it.
+    fn hash_structure(&self, mut state: &mut dyn Hasher) {
+        self.get_kind().hash(&mut state);
+        self.each_child(&mut |child| child.hash_structure(state));
+    }
+
     /// Statically analyze the expression, attempting to enumerate possible
     /// outputs. Returns an array of values plus the sentinel null optional
     /// value, used to indicate that the complete set of outputs is
@@ -413,14 +424,16 @@ impl<'a> GeoJSONFeature<'a> {
     }
 
     fn with_canonical(feature: &'a Feature<f64>, canonical: &CanonicalTileID) -> Self {
-        let geometry = mln_tile::geometry_tile_data::convert_geometry_to_tile(&feature.geometry, canonical);
+        let geometry = feature.geometry.as_ref().map_or_else(GeometryCollection::default, |g| {
+            mln_tile::geometry_tile_data::convert_geometry_to_tile(g, canonical)
+        });
         GeoJSONFeature { feature, geometry }
     }
 }
 
 impl GeometryTileFeature for GeoJSONFeature<'_> {
     fn get_type(&self) -> FeatureType {
-        to_feature_type(&self.feature.geometry)
+        to_feature_type(self.feature.geometry.as_ref())
     }
 
     fn get_properties(&self) -> &ValueObject {

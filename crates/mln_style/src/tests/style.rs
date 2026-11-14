@@ -9,6 +9,7 @@ use mln_style_types::{ProjectionDefinition, VisibilityType};
 use mln_util::image::PremultipliedImage;
 use mln_util::logging::{Event, EventSeverity};
 use mln_util::size::Size;
+use mln_util::tileset::PartialTileset;
 use mln_util::{Color, LatLng};
 
 use super::util::{FixtureLog, parse_json, read_file};
@@ -21,7 +22,7 @@ use crate::projection::Projection;
 use crate::property_value::PropertyValue;
 use crate::sky::Sky;
 use crate::sources::geojson_source::{GeoJSONOptions, GeoJSONSource};
-use crate::sources::tile_source::{UrlOrTileset, VectorSource};
+use crate::sources::tile_source::TileSource;
 use crate::style::{Impl, Style};
 use crate::transition_options::TransitionOptions;
 
@@ -338,6 +339,38 @@ fn layer_mut_guard_notifies_once_per_change() {
     assert!(!Arc::ptr_eq(&before, &style.get_layer_impls()));
 }
 
+#[test]
+fn layer_changes_leave_earlier_snapshots_unchanged() {
+    // Not a C++ test: the collection changes its impls in place unless a
+    // snapshot shares them.
+    let mut style = stub_style();
+    let observer = Rc::new(CountingObserver::default());
+    style.set_observer(Some(Rc::<CountingObserver>::clone(&observer)));
+    style.load_json(r#"{"version":8,"sources":{},"layers":[]}"#);
+    let without_layers = observer.updates.replace(0);
+    style.load_json(
+        r#"{"version":8,"sources":{},"layers":[{"id":"a","type":"background"},{"id":"b","type":"background"}]}"#,
+    );
+    // An update for each layer.
+    assert_eq!(without_layers + 2, observer.updates.replace(0));
+    let ids = |impls: &[Arc<dyn crate::layer::Impl>]| impls.iter().map(|impl_| impl_.id.clone()).collect::<Vec<_>>();
+    let loaded = style.get_layer_impls();
+    assert_eq!(["a", "b"], *ids(&loaded));
+
+    style.add_layer(Box::new(LineLayer::new("c", "source")), Some("b")).unwrap();
+    let error = style.add_layer(Box::new(LineLayer::new("a", "source")), Some("b")).err().unwrap();
+    assert_eq!(mln_util::ErrorKind::AlreadyExists, error.kind);
+    assert_eq!("Layer a already exists", error.message);
+    assert_eq!(1, observer.updates.get());
+    let added = style.get_layer_impls();
+    assert_eq!(["a", "c", "b"], *ids(&added));
+
+    assert!(style.remove_layer("a").is_some());
+    assert_eq!(["c", "b"], *ids(&style.get_layer_impls()));
+    assert_eq!(["a", "b"], *ids(&loaded));
+    assert_eq!(["a", "c", "b"], *ids(&added));
+}
+
 // gtest: Style.GlobalState
 #[test]
 fn global_state() {
@@ -610,14 +643,8 @@ fn sky_projection_and_global_state_coexist() {
     assert_eq!(Value::Bool(false), style.get_global_state()["showLabels"]);
 }
 
-fn vector_source(id: &str) -> VectorSource {
-    VectorSource::new(
-        id,
-        UrlOrTileset::Url("mptiler://tiles/contours".to_owned()),
-        None,
-        None,
-        mln_util::tileset::VectorEncoding::Mapbox,
-    )
+fn vector_source(id: &str) -> TileSource {
+    TileSource::vector(id, Some("mptiler://tiles/contours".to_owned()), PartialTileset::default())
 }
 
 // gtest: Style.DuplicateSource

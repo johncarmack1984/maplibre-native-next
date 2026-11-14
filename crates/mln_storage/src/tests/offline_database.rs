@@ -7,10 +7,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use geo_types::{Geometry, Point};
 use mln_util::chrono::{Timestamp, now};
 use mln_util::constants::DEFAULT_MAX_CACHE_SIZE;
 use mln_util::geo::{LatLng, LatLngBounds};
-use mln_util::geometry::{Geometry, Point};
 use mln_util::logging::{Event, EventSeverity};
 use mln_util::tileset::Scheme;
 
@@ -1424,6 +1424,21 @@ fn incremental_vacuum() {
 
     assert_eq!(2, database_auto_vacuum(&filename));
 
+    check_log_empty(&log);
+}
+
+#[test]
+fn a_new_database_vacuums_incrementally() {
+    let log = FixtureLog::new();
+    let filename = filename();
+    delete_database_files(&filename);
+    // An empty file, as a runtime creates for its cache path.
+    std::fs::File::create(&*filename).unwrap();
+
+    drop(OfflineDatabase::new(&filename));
+
+    assert_eq!(2, database_auto_vacuum(&filename));
+    assert_eq!(6, database_user_version(&filename));
     check_log_empty(&log);
 }
 
