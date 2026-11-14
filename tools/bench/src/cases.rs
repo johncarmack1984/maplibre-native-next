@@ -15,7 +15,8 @@ use crate::latency::{set_tile_latency, take_tile_requests};
 use crate::meter::{Meter, live_heap_mib, ms};
 use crate::scene::{
     BASEMAP_SIZE, BASEMAP_ZOOM, CJK_SIZE, CJK_STYLE, CJK_ZOOM, Mode, REAL_WORLD, REAL_WORLD_SIZE, REFRESH, Scene,
-    basemap_center, basemap_north_west, basemap_point, basemap_south_east, basemap_style, cjk_center, write_frame,
+    basemap_center, basemap_mlt_style, basemap_north_west, basemap_point, basemap_south_east, basemap_style,
+    cjk_center, prepare_basemap_mlt, write_frame,
 };
 use crate::stats::{median, percentile};
 use crate::{Context, Metrics};
@@ -51,6 +52,9 @@ enum Style {
     Url(String),
     Json(&'static str),
     Basemap,
+    /// The basemap over its tiles as MLT that carry their polygons'
+    /// triangles.
+    BasemapMlt,
 }
 
 impl View {
@@ -67,6 +71,14 @@ impl View {
             Style::Url(url) => scene.load_url(url),
             Style::Json(json) => scene.load_json(json),
             Style::Basemap => scene.load_json(&basemap_style(&cx.fixtures)),
+            Style::BasemapMlt => scene.load_json(&basemap_mlt_style(&cx.fixtures)),
+        }
+    }
+
+    /// Prepares what loading the style reads, untimed.
+    fn prepare(&self, cx: &Context) {
+        if matches!(self.style, Style::BasemapMlt) {
+            prepare_basemap_mlt(&cx.fixtures);
         }
     }
 }
@@ -82,14 +94,12 @@ fn views() -> Vec<View> {
             style: Style::Url(scene.style_url()),
         })
         .collect();
-    views.push(View {
-        name: "basemap",
-        size: BASEMAP_SIZE,
-        center: basemap_center(),
-        zoom: BASEMAP_ZOOM,
-        style: Style::Basemap,
-    });
+    views.push(basemap_view());
     views
+}
+
+fn basemap_view() -> View {
+    View { name: "basemap", size: BASEMAP_SIZE, center: basemap_center(), zoom: BASEMAP_ZOOM, style: Style::Basemap }
 }
 
 /// Every case, in the order they run.
@@ -112,11 +122,13 @@ pub fn all() -> Vec<Case> {
     cases.push(Case::new("Frame/AddImages", frame_add_images));
     cases.push(Case::new("Frame/FeatureState", frame_feature_state));
     cases.push(Case::new("Frame/FeatureStateHover", frame_feature_state_hover));
+    cases.push(Case::new("Frame/MapFeatureStateHover", frame_map_feature_state_hover));
     cases.push(Case::new("Frame/HideLayers", frame_hide_layers));
     for (name, data_driven) in [("Frame/Extrusions", false), ("Frame/Extrusions/DataDriven", true)] {
         cases.push(Case::new(name, move |cx| frame_extrusions(cx, name, data_driven)));
     }
-    for view in views() {
+    let basemap_mlt = View { name: "basemap-mlt", style: Style::BasemapMlt, ..basemap_view() };
+    for view in views().into_iter().chain([basemap_mlt]) {
         let name = format!("Load/Style/{}", view.name);
         cases.push(Case::new(name, move |cx| load_style(cx, &view)));
     }
@@ -198,6 +210,7 @@ fn still_colliding_icons(cx: &Context, name: &str, icons: usize, overlap: bool) 
 /// style, sprite and glyph requests, tile parsing and layout, pipeline
 /// creation and the frame. The GPU device is set up before.
 fn load_style(cx: &Context, view: &View) -> Metrics {
+    view.prepare(cx);
     let mut meter = Meter::new();
     let mut last = None;
     for _ in 0..cx.iterations(10) {
@@ -360,6 +373,67 @@ fn frame_feature_state_hover(cx: &Context) -> Metrics {
     }
     if let Some(dir) = &cx.frames {
         write_frame(dir, "Frame/FeatureStateHover", &scene.read_frame());
+    }
+    let (p95, p99) = (percentile(meter.times(), 95.0), percentile(meter.times(), 99.0));
+    let mut metrics = meter.finish();
+    metrics.lead("frame_p95_ms", p95);
+    metrics.lead("frame_p99_ms", p99);
+    metrics
+}
+
+/// Frames of a GeoJSON source of 100,000 points, every one given a state
+/// through the map, with one point's state changing through the map in
+/// every frame, as hover highlighting over a large dataset does.
+fn frame_map_feature_state_hover(cx: &Context) -> Metrics {
+    const POINTS: usize = 100_000;
+    let features: Vec<serde_json::Value> = (0..POINTS)
+        .map(|index| {
+            let (x, y) = (index % 400, index / 400);
+            serde_json::json!({
+                "type": "Feature",
+                "id": index,
+                "geometry": {"type": "Point", "coordinates": [-1.0 + x as f64 * 0.005, -0.6 + y as f64 * 0.005]},
+                "properties": {},
+            })
+        })
+        .collect();
+    let style = serde_json::json!({
+        "version": 8,
+        "sources": {"points": {"type": "geojson", "data": {"type": "FeatureCollection", "features": features}}},
+        "layers": [
+            {"id": "background", "type": "background", "paint": {"background-color": "#ffffff"}},
+            {
+                "id": "points",
+                "type": "circle",
+                "source": "points",
+                "paint": {
+                    "circle-radius": 2,
+                    "circle-color": ["case", ["boolean", ["feature-state", "selected"], false], "#e55e5e", "#3887be"],
+                },
+            },
+        ],
+    });
+    let mut scene = Scene::new(BASEMAP_SIZE, Mode::OnDemand);
+    scene.jump(LatLng::new(0.0, 0.0).expect("a valid center"), 7.0);
+    scene.load_json(&style.to_string());
+    scene.settle();
+    scene.held(|scene| {
+        for index in 0..POINTS {
+            scene.set_map_feature_state("points", &index.to_string(), index % 2 == 0);
+        }
+    });
+    scene.settle();
+    let mut meter = Meter::new();
+    for index in 0..cx.iterations(100) {
+        let id = (index * 7919 % POINTS).to_string();
+        meter.time(|| {
+            scene.set_map_feature_state("points", &id, index % 2 == 1);
+            scene.pump();
+            scene.render_frame()
+        });
+    }
+    if let Some(dir) = &cx.frames {
+        write_frame(dir, "Frame/MapFeatureStateHover", &scene.read_frame());
     }
     let (p95, p99) = (percentile(meter.times(), 95.0), percentile(meter.times(), 99.0));
     let mut metrics = meter.finish();

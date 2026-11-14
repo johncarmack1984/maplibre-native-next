@@ -376,12 +376,21 @@ impl Impl {
         ));
     }
 
+    /// Queues a later response to the style request, as a file source that
+    /// revalidates the style answers the same request again.
+    #[cfg(test)]
+    pub(crate) fn push_style_response(&self, response: Response) {
+        self.style_responses.borrow_mut().push_back(response);
+    }
+
     /// The body of the `loadURL` response lambda, for each response queued
-    /// since the last call (see the file comment).
-    pub fn process_style_responses(&mut self) {
+    /// since the last call (see the file comment). Returns whether a response
+    /// replaced the style.
+    pub fn process_style_responses(&mut self) -> bool {
+        let mut replaced = false;
         loop {
             let Some(res) = self.style_responses.borrow_mut().pop_front() else {
-                return;
+                return replaced;
             };
 
             // Don't allow a loaded, mutated style to be overwritten with a new version.
@@ -414,12 +423,14 @@ impl Impl {
             } else if !empty && let Some(data) = &res.data {
                 self.style_delivered = true;
                 let json = String::from_utf8_lossy(data).into_owned();
-                self.parse(&json);
+                replaced |= self.parse(&json);
             }
         }
     }
 
-    fn parse(&mut self, json: &str) {
+    /// Replaces the style with the one `json` describes; returns whether it
+    /// parsed.
+    fn parse(&mut self, json: &str) -> bool {
         let mut parser = Parser::default();
 
         if let Err(error) = parser.parse(json) {
@@ -428,7 +439,7 @@ impl Impl {
             let observer = self.observer();
             observer.on_style_error(StyleLoadError::Parse(message));
             observer.on_resource_error(error);
-            return;
+            return false;
         }
 
         self.mutated = false;
@@ -500,6 +511,7 @@ impl Impl {
         }
         self.loaded = true;
         self.observer().on_style_loaded();
+        true
     }
 
     pub(crate) fn get_json(&self) -> String {

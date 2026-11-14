@@ -11,7 +11,6 @@ use std::sync::Arc;
 
 use mln_actor::scheduler;
 use mln_style_types::image::{ImageDependencies, ImageMap, ImageType, Impl as ImageImpl};
-#[cfg(test)]
 use mln_util::constants::DEFAULT_ON_DEMAND_IMAGES_CACHE_SIZE;
 use mln_util::logging::{Event, Log};
 use mln_vec_map::{VecMap, VecSet};
@@ -331,7 +330,8 @@ impl ImageManager {
         }
     }
 
-    #[cfg(test)]
+    /// Asks the observer to remove the unused requested images once they
+    /// take more than `DEFAULT_ON_DEMAND_IMAGES_CACHE_SIZE` bytes.
     pub(crate) fn reduce_memory_use_if_cache_size_exceeds_limit(&self) {
         if self.state.borrow().requested_images_cache_size > DEFAULT_ON_DEMAND_IMAGES_CACHE_SIZE {
             self.reduce_memory_use();
@@ -342,11 +342,22 @@ impl ImageManager {
         Arc::clone(&self.state.borrow().available_images)
     }
 
-    /// The versions of the updated images, by image id. Read by
-    /// `GeometryTileRenderData::prepare`.
+    /// The versions of the updated images, by image id.
     #[cfg(test)]
     pub(crate) fn updated_image_versions(&self) -> ImageVersionMap {
         self.state.borrow().updated_image_versions.clone()
+    }
+
+    /// Calls `f` with each image that replaced one of the same size, and its
+    /// version: the number of such replacements since the image was added
+    /// or last changed size.
+    pub(crate) fn for_each_updated_image(&self, mut f: impl FnMut(&Arc<ImageImpl>, u32)) {
+        let state = self.state.borrow();
+        for (id, &version) in &state.updated_image_versions {
+            if let Some(image) = state.images.get(id) {
+                f(image, version);
+            }
+        }
     }
 
     pub(crate) fn clear(&self) {

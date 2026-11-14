@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use crate::query::RenderedQueryOptions;
 use crate::render_layer::RenderLayer;
 use crate::source_state::SourceFeatureState;
+use crate::text::collision_index::OverlapMode;
 
 /// The render layers a query looks at, by id.
 pub(crate) type QueryLayers<'a> = HashMap<String, &'a dyn RenderLayer>;
@@ -58,6 +59,10 @@ pub(crate) struct IndexedSubfeature {
     // Only used for symbol features
     pub(crate) bucket_instance_id: u32,
     pub(crate) collision_group_id: u16,
+    /// The overlap mode the symbol was placed with. It's set only in a
+    /// collision index, so the worker codec doesn't carry it.
+    #[serde(skip)]
+    pub(crate) overlap_mode: OverlapMode,
 }
 
 /// A shared order of feature indices that queries sort symbol features by.
@@ -185,7 +190,10 @@ impl FeatureIndex {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the query geometry, camera, tile and options that select and filter the tile's features"
+    )]
     pub(crate) fn query(
         &self,
         result: &mut QueryResults,
@@ -319,7 +327,10 @@ impl FeatureIndex {
         Ok(result)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one candidate feature and the query's geometry, camera, layers and feature state that test it"
+    )]
     fn add_feature(
         &self,
         result: &mut QueryResults,

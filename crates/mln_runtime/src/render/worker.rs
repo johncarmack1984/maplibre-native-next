@@ -1,8 +1,10 @@
 //! A render session's thread: its renderer, its frame demands, and the work
 //! that the handle sends it.
 
-// The browser build renders into no borrowed ring.
-#![cfg_attr(target_family = "wasm", allow(unreachable_code, unused_variables))]
+#![cfg_attr(
+    target_family = "wasm",
+    expect(unreachable_code, unused_variables, reason = "the browser build renders into no borrowed ring")
+)]
 
 use std::any::Any;
 use std::cell::{Cell, RefCell};
@@ -322,6 +324,8 @@ struct PendingDemand {
 /// The demand that renders the map's still image while the image waits for
 /// a frame. Its result has no token.
 struct StillDemand {
+    /// The `still_image_request_id` of the image.
+    request: u64,
     /// The update that the demand tried and drew nothing of, since a
     /// resource that the image needs had yet to load. The demand waits for
     /// a newer one.
@@ -429,8 +433,8 @@ pub(crate) struct Worker {
     /// The releases and replacements that wait for the host's reads of the
     /// textures that they let go of.
     settling: Vec<Settling>,
-    /// Stops the thread that has the session's thread poll `settling`.
-    ticker: Option<Arc<AtomicBool>>,
+    /// The thread that has the session's thread poll `settling`.
+    ticker: Option<Ticker>,
 }
 
 /// The longest that a release or replacement waits for the host's reads of
@@ -451,12 +455,31 @@ struct Settling {
 /// What runs once a release or replacement has settled, with its result.
 type SettleDone = Box<dyn FnOnce(&mut Outbox, Result<(), Error>)>;
 
+/// What has the session's thread poll the host's reads, until it drops,
+/// which waits for its thread to end.
+struct Ticker {
+    stop: Arc<AtomicBool>,
+    #[cfg(not(target_family = "wasm"))]
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for Ticker {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        // It sleeps for no longer than `SETTLE_POLL`.
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
 /// Starts a thread that has the session's thread poll the host's reads on
-/// its later turns, until the returned flag stops it. It posts to the
+/// its later turns, until the returned ticker drops. It posts to the
 /// session's loop, so a caller-driven session's host gets a wake for each
 /// poll.
 #[cfg(target_family = "wasm")]
-fn start_ticker(run_loop: RunLoopHandle) -> Arc<AtomicBool> {
+fn start_ticker(run_loop: RunLoopHandle) -> Ticker {
     // The browser's one thread polls in the pump's slices instead, which it
     // asks for meanwhile.
     let stop = Arc::new(AtomicBool::new(false));
@@ -471,15 +494,15 @@ fn start_ticker(run_loop: RunLoopHandle) -> Arc<AtomicBool> {
         true
     })
     .detach();
-    stop
+    Ticker { stop }
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn start_ticker(run_loop: RunLoopHandle) -> Arc<AtomicBool> {
+fn start_ticker(run_loop: RunLoopHandle) -> Ticker {
     let stop = Arc::new(AtomicBool::new(false));
     let stopped = Arc::clone(&stop);
     let deadline = Instant::now() + SETTLE_TIMEOUT * 2;
-    let spawned = mln_util::thread::builder("RenderSessionSettle").spawn(move || {
+    let spawned = mln_util::thread::spawn("RenderSessionSettle", move || {
         while !stopped.load(Ordering::SeqCst) && Instant::now() < deadline {
             std::thread::sleep(SETTLE_POLL);
             post(&run_loop, Worker::poll_settling);
@@ -488,7 +511,7 @@ fn start_ticker(run_loop: RunLoopHandle) -> Arc<AtomicBool> {
     if spawned.is_err() {
         Log::error(Event::Render, "Can't start the thread that polls the host's reads of released textures");
     }
-    stop
+    Ticker { stop, thread: spawned.ok() }
 }
 
 impl Drop for Worker {
@@ -895,19 +918,21 @@ impl Worker {
     /// lands, and the next session once it attaches.
     fn serve_still(&mut self, outbox: &mut Outbox) {
         let pending = self.pending_still_image();
+        // The image completed or failed meanwhile, and the next one, if one
+        // waits, gets a demand of its own.
+        if self.still.as_ref().is_some_and(|still| still.request != pending) {
+            self.still = None;
+            let result = FrameResult::unrendered(None, FrameDisposition::NoUpdate, self.latest_generation());
+            self.publish(&result, outbox);
+        }
         if pending == 0 {
-            // The image completed or failed meanwhile.
-            if self.still.take().is_some() {
-                let result = FrameResult::unrendered(None, FrameDisposition::NoUpdate, self.latest_generation());
-                self.publish(&result, outbox);
-            }
             return;
         }
         if self.still.is_none() {
             if pending <= self.still_rendered || !self.can_render() {
                 return;
             }
-            self.still = Some(StillDemand { tried: None });
+            self.still = Some(StillDemand { request: pending, tried: None });
         }
         // The demand ends once the map fails the image.
         if pending == self.still_failing.get() {
@@ -1020,14 +1045,15 @@ impl Worker {
             state.graphics_objects = state.graphics_objects.max(Gfx::OBJECTS);
         }
         let mut events = self.renderer_events.take();
-        if token.is_some() {
+        let dropped = gfx.target.is_presenting() && matches!(handoff, Some(Handoff::Dropped));
+        if token.is_some() || dropped {
             for event in &mut events {
                 if let RendererEvent::RenderFrameFinished { still_image_request_id, .. } = event {
                     *still_image_request_id = 0;
                 }
             }
         }
-        if gfx.target.is_presenting() && matches!(handoff, Some(Handoff::Dropped)) {
+        if dropped {
             let result = FrameResult::unrendered(token, FrameDisposition::TargetNotReady, update.generation);
             return RenderedFrame { result, events, slot: None };
         }
@@ -1308,6 +1334,9 @@ impl Worker {
         let waiting: Vec<_> = self.waiting.drain(..).map(|(pending, _)| pending).collect();
         self.parked.extend(waiting);
         self.pump(outbox);
+        // A still image that waits for a target gets its demand again, once
+        // the replacement no longer counts as on its way.
+        post(&self.shared.run_loop, Worker::still_image_changed);
         Ok(pending)
     }
 
@@ -1514,9 +1543,7 @@ impl Worker {
     }
 
     fn stop_ticker(&mut self) {
-        if let Some(ticker) = self.ticker.take() {
-            ticker.store(true, Ordering::SeqCst);
-        }
+        self.ticker = None;
     }
 
     /// Ends the releases and replacements that wait for the host's reads,
