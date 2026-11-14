@@ -1016,6 +1016,7 @@ pub struct mln_logical_size {
 }
 pub const MLN_MAP_OPTION_EVENT_MASK: mln_map_option_field = 1;
 pub const MLN_MAP_OPTION_TILE_CACHE_ENABLED: mln_map_option_field = 2;
+pub const MLN_MAP_OPTION_SYSTEM_FONTS_ENABLED: mln_map_option_field = 4;
 /// The fields that mln_map_options sets.
 pub type mln_map_option_field = u32;
 /// A set of mln_map_option_field bits.
@@ -1043,8 +1044,16 @@ pub struct mln_map_options {
  that need complex shaping, like Myanmar or Devanagari. A JSON array of font
  files, each an object with a `url` and an optional `unicode-range`, as in
  a font face of a style's `font-faces`, which every font stack uses after
- the style's own font faces. Empty for none.*/
+ the style's own font faces. Empty for the system's fonts, unless
+ `system_fonts_enabled` is false.*/
     pub fallback_font_faces: mln_buffer_view,
+    /** Whether the map falls back to the system's fonts for CJK and the scripts
+ that need complex shaping when `fallback_font_faces` is empty: fonts that
+ the platform's font matcher picks for the user's preferred languages.
+ Without it, the map does. The first map that uses them waits for them
+ to be found. In the browser, the browser draws CJK glyphs in its
+ sans-serif font instead, where `fallback_font_faces` doesn't cover them.*/
+    pub system_fonts_enabled: bool,
 }
 /// A point on the screen, in logical pixels from the map's top-left corner.
 #[repr(C)]
@@ -2077,7 +2086,9 @@ pub struct mln_render_session_attach_options {
     pub redraw_wake: mln_wake,
     /** Called when a session driven by MLN_RENDER_DRIVER_CALLER_GRAPHICS_THREAD
  has work for mln_render_session_service_driver_work(). It isn't called
- again until a service runs.*/
+ again until a service runs. It's never called on your graphics thread
+ during a service: the service runs the work that comes while it runs, so
+ you can call mln_render_session_service_driver_work() from the wake.*/
     pub driver_work_wake: mln_wake,
     /** Whether an exported ring keeps the depth and stencil of each frame for
  you, so that you can draw into the frame depth-tested against the map, as

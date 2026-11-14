@@ -854,6 +854,7 @@ fn attach_unlocked<R>(
                 scale_factor,
                 glyph_cache: map.glyph_cache(),
                 tile_cache_enabled: map.tile_cache_enabled(),
+                local_font_family: map.local_font_family(),
                 failure: None,
             })),
             resizes_sent: 0,
@@ -1472,6 +1473,7 @@ impl RenderSession {
 
     /// The features that the session drew in an area of the screen, in its
     /// last frame. A feature that several layers draw appears once for each.
+    /// The topmost layer's features come first, and the bottom layer's last.
     /// A box covers only its part inside the target, so one past every edge
     /// covers the whole target.
     ///

@@ -2,12 +2,13 @@
 // (`hb_ft_font_create`). The port shapes with HarfRust on:
 // - `HbFtFont` (crate::hb_ft): hb-ft's glyph mapping and advances on the
 //   ported FreeType face, at hb-ft's scale (26.6 at 24 px);
-// - a view of the font that hides what HB_TINY compiles out, so HarfRust
-//   takes the same code paths: the AAT tables (HB_NO_AAT: morx, mort, kerx,
-//   ankr, trak, feat), `kern` (HB_NO_OT_KERN, and HB_NO_AAT for the AAT
-//   flavour) and the GSUB/GPOS FeatureVariations (HB_NO_VAR); and user
-//   features `frac=0`, `numr=0`, `dnom=0` (HB_NO_OT_SHAPE_FRACTIONS:
+// - the font's tables, including the AAT ones (morx, kerx, trak and the
+//   rest) and `kern`, which HB_TINY compiles out: some system fonts, like
+//   Apple's Tibetan font Kailasa, shape only through `morx`;
+// - user features `frac=0`, `numr=0`, `dnom=0` (HB_NO_OT_SHAPE_FRACTIONS:
 //   HB_TINY never adds the automatic fraction features).
+// Unlike HB_TINY's HB_NO_VAR, a variable font shapes at regular weight
+// (`weight::at_regular_weight`), with its GSUB/GPOS feature variations.
 // HarfRust has no switch for some HB_TINY options (HB_NO_OT_SHAPE_FALLBACK,
 // HB_NO_OT_SHAPER_VOWEL_CONSTRAINTS, HB_NO_UCD_UNASSIGNED), so a few texts
 // shape differently: fallback mark positioning, an inserted U+25CC, and
@@ -25,9 +26,7 @@ use crate::freetype::{FreeTypeFace, FreeTypeLibrary};
 use crate::glyph::{FontData, Glyph, GlyphID, GlyphIDType};
 use crate::harfbuzz::HBShapeAdjust;
 use crate::hb_ft::HbFtFont;
-
-/// Tables HarfBuzz never reads when built with `HB_TINY`.
-const HB_TINY_HIDDEN_TABLES: [&[u8; 4]; 7] = [b"morx", b"mort", b"kerx", b"kern", b"ankr", b"trak", b"feat"];
+use crate::weight;
 
 /// HarfBuzz's default language, which with `HB_NO_SETLOCALE` is "c".
 fn get_default_language() -> Language {
@@ -81,34 +80,20 @@ impl AsRef<[u8]> for TableBytes {
 }
 
 /// The tables of `face` as HarfBuzz (hb-ft's `_hb_ft_reference_table`, i.e.
-/// `FT_Load_Sfnt_Table`) sees them with `HB_TINY`.
-fn hb_tiny_font(face: &FreeTypeFace) -> Option<Font> {
+/// `FT_Load_Sfnt_Table`) sees them.
+fn shaping_font(face: &FreeTypeFace) -> Option<Font> {
     let ft = face.get_face()?;
     let data = face.data().clone();
     // FT_Load_Sfnt_Table: the first non-empty directory entry per tag.
     let tables: HashMap<[u8; 4], (usize, usize)> = ft.table_entries().into_iter().collect();
     let table_fn = move |tag: Tag| -> Option<Blob> {
-        let bytes = tag.to_be_bytes();
-        if HB_TINY_HIDDEN_TABLES.iter().any(|t| **t == bytes) {
-            return None;
-        }
-        let &(offset, length) = tables.get(&bytes)?;
+        let &(offset, length) = tables.get(&tag.to_be_bytes())?;
         let range = offset..offset + length;
-        let table = data.as_bytes().get(range.clone())?;
-        if (&bytes == b"GSUB" || &bytes == b"GPOS") && table.len() >= 4 {
-            // HB_NO_VAR: find_variations_index never finds one. Version 1.0
-            // headers have no FeatureVariations offset.
-            if table[0..2] == [0, 1] && table[2..4] != [0, 0] {
-                let mut table = table.to_vec();
-                table[2] = 0;
-                table[3] = 0;
-                return Some(Blob::from(table));
-            }
-        }
+        data.as_bytes().get(range.clone())?;
         let table: Arc<dyn AsRef<[u8]> + Send + Sync> = Arc::new(TableBytes { data: data.clone(), range });
         Some(Blob::from(table))
     };
-    Font::new(TableFunction::new(Arc::new(table_fn)), 0)
+    Font::new(TableFunction::new(Arc::new(table_fn)), 0).map(weight::at_regular_weight)
 }
 
 impl Impl {
@@ -116,7 +101,7 @@ impl Impl {
     /// `type_`.
     pub(crate) fn new(type_: GlyphIDType, font_file_data: impl Into<FontData>, lib: &FreeTypeLibrary) -> Self {
         let face = FreeTypeFace::from_memory(font_file_data, lib);
-        let font = if face.is_valid() { hb_tiny_font(&face) } else { None };
+        let font = if face.is_valid() { shaping_font(&face) } else { None };
         Impl { type_, face, font, plans: Mutex::new(HashMap::new()) }
     }
 
