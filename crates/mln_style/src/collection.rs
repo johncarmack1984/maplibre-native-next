@@ -96,10 +96,7 @@ impl<T: CollectionElement + ?Sized> CollectionBase<T> {
         self.wrappers.clear();
     }
 
-    /// Compares the impls' ids in place, as C++ compares `getID()`'s
-    /// reference: `get_id` copies each, and a style of hundreds of layers
-    /// looks one up for every layer it adds.
-    #[must_use]
+   #[must_use]
     pub(crate) fn index(&self, id: &str) -> usize {
         self.wrappers.iter().position(|e| T::impl_id(&e.base_impl()) == id).unwrap_or(self.wrappers.len())
     }
