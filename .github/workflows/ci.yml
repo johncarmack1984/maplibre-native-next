@@ -281,6 +281,13 @@ jobs:
       - name: Check the WebGL2 module
         run: node examples/web/check/check.mjs --backend webgl2 --out "$RUNNER_TEMP/web-check-webgl2"
 
+      # With no tile workers the map does its tiles' work itself, as it does
+      # in a module built without the `tile-workers` feature.
+      - name: Check both modules without tile workers
+        run: |
+          node examples/web/check/check.mjs --workers 0 --out "$RUNNER_TEMP/web-check-no-workers"
+          node examples/web/check/check.mjs --backend webgl2 --workers 0 --out "$RUNNER_TEMP/web-check-webgl2-no-workers"
+
       # The C library's browser package, one per backend, driven through its
       # raw C ABI from a Web Worker (crates/mln_c/web-check). The dev profile:
       # the check needs no release build, and two more would outlast the job.
@@ -302,6 +309,8 @@ jobs:
           path: |
             ${{ runner.temp }}/web-check
             ${{ runner.temp }}/web-check-webgl2
+            ${{ runner.temp }}/web-check-no-workers
+            ${{ runner.temp }}/web-check-webgl2-no-workers
           if-no-files-found: ignore
 
   # The one check for branch protection to require: it fails when a job above
